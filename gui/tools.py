@@ -67,23 +67,32 @@ class ToolCard(Card):
         run_row = ctk.CTkFrame(self, fg_color="transparent")
         run_row.grid(row=3, column=0, sticky="ew", padx=14, pady=(4, 14))
         run_row.grid_columnconfigure(0, weight=1)
+        self.stop_btn = GhostButton(run_row, text=f"⏹  {t('ui.stop')}",
+                                    command=self._stop, width=100)
+        self.stop_btn.grid(row=0, column=1, sticky="e", padx=(0, 8))
+        self.stop_btn.configure(state="disabled")
         self.run_btn = AccentButton(run_row, text=f"▶  {t('ui.run')}",
                                     command=self._dispatch, width=140)
-        self.run_btn.grid(row=0, column=1, sticky="e")
+        self.run_btn.grid(row=0, column=2, sticky="e")
 
     def _dispatch(self) -> None:
         values = self.form.values()
         self.log.write(f"[*] {t('ui.running')}", "cyan")
         self.run_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
 
         def worker(log: Callable[..., None]) -> None:
             self.on_run(values, log)
 
         def done() -> None:
             self.run_btn.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
             self.log.write(f"[*] {t('ui.finished')}", "cyan")
 
         self.runner.run(worker, on_done=done)
+
+    def _stop(self) -> None:
+        self.runner.request_stop()
 
 
 class CategoryPanel(ctk.CTkScrollableFrame):
@@ -1161,3 +1170,40 @@ BUILDERS: dict[str, Callable[..., ctk.CTkBaseClass]] = {
     "payload":             build_payload,
     "osint":               build_osint,
 }
+
+
+# ---------------------------------------------------------------------------
+# Plugin loading
+# ---------------------------------------------------------------------------
+def _wrap_with_plugins(category_key: str, original_builder):
+    """Return a builder that calls the original then appends matching plugins."""
+    def builder(master, runner: TaskRunner, log: LogConsole):
+        panel = original_builder(master, runner=runner, log=log)
+        try:
+            import plugins as _plugins
+        except ImportError:
+            return panel
+        category_color = T.CATEGORY_COLORS.get(category_key, T.ACCENT)
+        for spec in _plugins.discover():
+            if spec.get("category") != category_key:
+                continue
+            try:
+                panel.add(ToolCard(
+                    panel,
+                    icon=spec.get("icon", "🧩"),
+                    title=spec.get("title", spec.get("name", "Plugin")),
+                    description=spec.get("description", ""),
+                    fields=spec.get("fields") or [],
+                    on_run=spec["run"],
+                    runner=runner, log=log,
+                    category_color=category_color,
+                ))
+            except Exception as exc:
+                log.write(f"[-] Plugin {spec.get('name')} failed to mount: {exc}",
+                          "err")
+        return panel
+    return builder
+
+
+# Wrap each builder so plugins can hook in.
+BUILDERS = {k: _wrap_with_plugins(k, v) for k, v in BUILDERS.items()}

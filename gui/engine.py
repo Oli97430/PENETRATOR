@@ -22,6 +22,20 @@ from typing import Callable, Iterable
 
 Logger = Callable[..., None]  # log(msg, tag=...)
 
+# Module-level cancellation hook (set by TaskRunner before each run).
+# Engine functions can call _should_stop() inside long loops.
+_stop_check: Callable[[], bool] | None = None
+
+
+def set_stop_check(fn: Callable[[], bool] | None) -> None:
+    """Install a callable that returns True when the user requested stop."""
+    global _stop_check
+    _stop_check = fn
+
+
+def _should_stop() -> bool:
+    return _stop_check() if _stop_check is not None else False
+
 # ---------------------------------------------------------------------------
 # Constants (shared with CLI modules)
 # ---------------------------------------------------------------------------
@@ -233,6 +247,11 @@ def scan_ports(target: str, start: int, end: int, threads: int, timeout: float,
     with ThreadPoolExecutor(max_workers=threads) as pool:
         futures = {pool.submit(_check_port, ip, p, timeout): p for p in ports}
         for fut in as_completed(futures):
+            if _should_stop():
+                log("[!] Stop requested - cancelling scan", "warn")
+                for f in futures:
+                    f.cancel()
+                break
             port = futures[fut]
             if fut.result():
                 service = get_service(port)
@@ -360,6 +379,9 @@ def crack_hash(value: str, algo: str, wordlist_path: str,
     t0 = time.time()
     with path.open("r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
+            if _should_stop():
+                log("[!] Stop requested - aborting crack", "warn")
+                return None
             word = line.rstrip("\r\n")
             if not word:
                 continue
@@ -1259,6 +1281,9 @@ def jwt_brute(token: str, wordlist_path: str, log: Logger) -> str | None:
     tried = 0; t0 = time.time()
     with path.open("r", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
+            if _should_stop():
+                log("[!] Stop requested - aborting", "warn")
+                return None
             secret = line.rstrip("\r\n")
             if not secret:
                 continue

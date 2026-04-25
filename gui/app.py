@@ -33,11 +33,15 @@ from gui import tools as tool_frames
 
 
 class _StatusAwareRunner(TaskRunner):
-    """TaskRunner that updates a status label when busy/idle."""
+    """TaskRunner that updates a status label when busy/idle and wires the
+    engine cancellation hook."""
 
     def __init__(self, root, log, status_label):
         super().__init__(root, log)
         self.status = status_label
+        # Make the engine's _should_stop() return our event state.
+        from gui import engine as _engine
+        _engine.set_stop_check(self.is_stopping)
 
     def run(self, fn, on_done=None):
         if self.is_running():
@@ -396,6 +400,9 @@ class App(ctk.CTk):
         if first_run:
             self.after(150, self._show_first_run_picker)
 
+        # Background update check, 1.5s after launch
+        self.after(1500, self._check_for_updates_async)
+
     # ------------------------------------------------------------------
     # Polish helpers
     # ------------------------------------------------------------------
@@ -460,6 +467,23 @@ class App(ctk.CTk):
         FirstRunLanguageDialog(
             self, on_pick=lambda code: self._on_language_change(code),
         )
+
+    def _check_for_updates_async(self) -> None:
+        """Background thread to check GitHub releases — non-blocking."""
+        import threading
+        from core import updater
+
+        def worker():
+            result = updater.check_latest(VERSION)
+            if result and result.get("newer"):
+                self.after(0, self._notify_update, result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _notify_update(self, info: dict) -> None:
+        msg = (f"[★] New version available: v{info['latest']} "
+               f"(you have v{info['current']})  →  {info['url']}")
+        self.log.write(msg, "accent")
 
     # ------------------------------------------------------------------
     def _clear_content(self) -> None:

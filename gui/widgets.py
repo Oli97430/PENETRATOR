@@ -296,15 +296,30 @@ class TaskRunner:
 
     The worker function receives a ``log(msg, tag)`` callable that marshals
     messages back onto the Tk main loop via ``after(0, ...)``.
+
+    Cooperative cancellation: a ``threading.Event`` is exposed via
+    :attr:`stop_event`. Engine functions can poll it (or use the helper
+    :meth:`is_stopping`) and abort early. The GUI's Stop button calls
+    :meth:`request_stop`.
     """
 
     def __init__(self, tk_root: ctk.CTk, log_console: LogConsole):
         self.root = tk_root
         self.log = log_console
         self.thread: threading.Thread | None = None
+        self.stop_event = threading.Event()
 
     def is_running(self) -> bool:
         return self.thread is not None and self.thread.is_alive()
+
+    def is_stopping(self) -> bool:
+        return self.stop_event.is_set()
+
+    def request_stop(self) -> None:
+        if self.is_running():
+            self.stop_event.set()
+            self.log.write("[!] Stop requested - waiting for current step to finish",
+                           "warn")
 
     def run(
         self,
@@ -315,12 +330,16 @@ class TaskRunner:
             self.log.write("[!] A task is already running", "warn")
             return
 
+        self.stop_event.clear()
+
         def log_from_worker(msg: str, tag: str = "info") -> None:
             self.root.after(0, self.log.write, msg, tag)
 
         def worker() -> None:
             try:
                 fn(log_from_worker)
+            except StopIteration:
+                log_from_worker("[!] Task aborted by user", "warn")
             except Exception as exc:  # keep GUI alive on tool errors
                 log_from_worker(f"[-] Error: {exc}", "err")
             finally:

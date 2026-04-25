@@ -1,0 +1,21 @@
+"""Example plugin: prints a hello message in the current category.
+
+Rename this file (or copy it) and change PLUGIN to add your own tool.
+"""
+from gui.widgets import FormField
+
+
+def _run(values, log):
+    name = values.get("name") or "stranger"
+    log(f"[+] Hello {name}, this is a PENETRATOR plugin!", "ok")
+    log("[i] Edit plugins/example_motd.py to write your own.", "muted")
+
+
+PLUGIN = {
+    "category": "about",
+    "icon": "🧪",
+    "title": "Plugin Demo",
+    "description": "Smallest possible plugin example.",
+    "fields": [FormField("name", "Your name", placeholder="alice")],
+    "run": _run,
+}
