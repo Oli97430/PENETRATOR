@@ -291,8 +291,8 @@ def build_wordlist(master, runner: TaskRunner, log: LogConsole):
         panel, icon="🧬", title=t("modules.wordlist.combinator"),
         description=t("modules.wordlist.combinator_desc"),
         fields=[
-            FormField("left", "List A", kind="file"),
-            FormField("right", "List B", kind="file"),
+            FormField("left", t("ui.list_a"), kind="file"),
+            FormField("right", t("ui.list_b"), kind="file"),
             FormField("output", t("ui.output_file"), default="wordlist_combo.txt"),
         ],
         on_run=run_comb, runner=runner, log=log, category_color=color,
@@ -309,7 +309,7 @@ def build_wordlist(master, runner: TaskRunner, log: LogConsole):
         panel, icon="🔀", title=t("modules.wordlist.rule_mutator"),
         description=t("modules.wordlist.rule_mutator_desc"),
         fields=[
-            FormField("words", "Seed words (one per line)", kind="textarea"),
+            FormField("words", t("ui.seed_words"), kind="textarea"),
             FormField("output", t("ui.output_file"), default="wordlist_leet.txt"),
         ],
         on_run=run_leet, runner=runner, log=log, category_color=color,
@@ -557,7 +557,7 @@ def build_password_tools(master, runner: TaskRunner, log: LogConsole):
     panel.add(ToolCard(
         panel, icon="📊", title=t("modules.password_tools.strength"),
         description=t("modules.password_tools.strength_desc"),
-        fields=[FormField("pw", "Password", kind="password")],
+        fields=[FormField("pw", t("ui.password"), kind="password")],
         on_run=run_strength, runner=runner, log=log, category_color=color,
     ))
 
@@ -703,7 +703,7 @@ def build_xss_tools(master, runner: TaskRunner, log: LogConsole):
     panel.add(ToolCard(
         panel, icon="🔣", title=t("modules.xss_tools.encoder"),
         description=t("modules.xss_tools.encoder_desc"),
-        fields=[FormField("payload", "Payload", kind="textarea",
+        fields=[FormField("payload", t("ui.payload"), kind="textarea",
                           default="<script>alert(1)</script>")],
         on_run=run_encode, runner=runner, log=log, category_color=color,
     ))
@@ -758,7 +758,7 @@ def build_reverse_engineering(master, runner: TaskRunner, log: LogConsole):
         fields=[
             FormField("path", t("ui.file_path"), kind="file"),
             FormField("off", t("modules.reverse.offset"), default="0"),
-            FormField("len", "Length", default="256"),
+            FormField("len", t("ui.length"), default="256"),
         ],
         on_run=run_hex, runner=runner, log=log, category_color=color,
     ))
@@ -805,7 +805,7 @@ def build_forensic(master, runner: TaskRunner, log: LogConsole):
         fields=[
             FormField("path", t("ui.file_path"), kind="file"),
             FormField("off", t("modules.reverse.offset"), default="0"),
-            FormField("len", "Length", default="256"),
+            FormField("len", t("ui.length"), default="256"),
         ],
         on_run=run_hex, runner=runner, log=log, category_color=color,
     ))
@@ -841,8 +841,8 @@ def build_forensic(master, runner: TaskRunner, log: LogConsole):
         panel, icon="🧾", title=t("modules.forensic.compare_files"),
         description=t("modules.forensic.compare_files_desc"),
         fields=[
-            FormField("a", "File A", kind="file"),
-            FormField("b", "File B", kind="file"),
+            FormField("a", t("ui.file_a"), kind="file"),
+            FormField("b", t("ui.file_b"), kind="file"),
         ],
         on_run=run_cmp, runner=runner, log=log, category_color=color,
     ))
@@ -913,7 +913,7 @@ def build_payload(master, runner: TaskRunner, log: LogConsole):
     panel.add(ToolCard(
         panel, icon="🔣", title=t("modules.payload.encoder"),
         description=t("modules.payload.encoder_desc"),
-        fields=[FormField("payload", "Text", kind="textarea")],
+        fields=[FormField("payload", t("ui.text"), kind="textarea")],
         on_run=run_enc, runner=runner, log=log, category_color=color,
     ))
 
@@ -940,7 +940,7 @@ def build_payload(master, runner: TaskRunner, log: LogConsole):
     panel.add(ToolCard(
         panel, icon="🧨", title=t("modules.payload.msfvenom"),
         description=t("modules.payload.msfvenom_desc"),
-        fields=[FormField("args", "msfvenom arguments",
+        fields=[FormField("args", t("ui.msfvenom_args"),
                           placeholder="-p windows/meterpreter/reverse_tcp LHOST=... LPORT=... -f exe -o a.exe")],
         on_run=run_msfvenom, runner=runner, log=log, category_color=color,
     ))
@@ -984,7 +984,7 @@ def build_osint(master, runner: TaskRunner, log: LogConsole):
     panel.add(ToolCard(
         panel, icon="👤", title=t("modules.osint.username_search"),
         description=t("modules.osint.username_search_desc"),
-        fields=[FormField("user", "Username")],
+        fields=[FormField("user", t("ui.username"))],
         on_run=run_user, runner=runner, log=log, category_color=color,
     ))
 
@@ -995,7 +995,7 @@ def build_osint(master, runner: TaskRunner, log: LogConsole):
     panel.add(ToolCard(
         panel, icon="📞", title=t("modules.osint.phone_info"),
         description=t("modules.osint.phone_info_desc"),
-        fields=[FormField("phone", "Phone (E.164)", placeholder="+14155552671")],
+        fields=[FormField("phone", t("ui.phone_e164"), placeholder="+14155552671")],
         on_run=run_phone, runner=runner, log=log, category_color=color,
     ))
 

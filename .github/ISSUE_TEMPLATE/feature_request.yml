@@ -1,0 +1,34 @@
+name: 💡 Feature request
+description: Suggest a new tool, UX improvement, or other enhancement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What's the feature?
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it useful?
+      description: What problem does it solve, what's the use case?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: Please confirm
+      options:
+        - label: This feature is for **education / authorized pentest / CTF**.
+          required: true
+        - label: It's **not** a phishing kit, hidden RAT, keylogger, spycam, or DDoS tool.
+          required: true
