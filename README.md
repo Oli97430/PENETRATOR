@@ -111,11 +111,37 @@ EN · FR · 中文 — bascule live, zéro redémarrage.
 
 ## 🖼️ Screenshots
 
-> _Aperçus à insérer après release — GUI sombre, accents crimson #ff3860._
+<p align="center">
+  <img src="assets/screenshots/01-info-gathering.png" alt="Information Gathering" width="100%"/>
+  <em>Information Gathering — port scanner, DNS, WHOIS, subdomain finder…</em>
+</p>
 
-| Modern GUI | Classic CLI |
-|:---:|:---:|
-| *screenshot-gui.png* | *screenshot-cli.png* |
+<table>
+<tr>
+<td width="50%"><img src="assets/screenshots/02-password-tools.png" alt="Password Tools"/></td>
+<td width="50%"><img src="assets/screenshots/03-osint.png" alt="OSINT"/></td>
+</tr>
+<tr>
+<td align="center"><em>🔑 Password Tools</em></td>
+<td align="center"><em>🕵️ OSINT</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="assets/screenshots/04-payload.png" alt="Payload Generator"/></td>
+<td width="50%"><img src="assets/screenshots/05-steganography.png" alt="Steganography"/></td>
+</tr>
+<tr>
+<td align="center"><em>💣 Payload Generator</em></td>
+<td align="center"><em>🖼️ Steganography</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="assets/screenshots/07-settings.png" alt="Settings"/></td>
+<td width="50%"><img src="assets/screenshots/06-about.png" alt="About"/></td>
+</tr>
+<tr>
+<td align="center"><em>⚙️ Settings — language live-switch</em></td>
+<td align="center"><em>ℹ️ About</em></td>
+</tr>
+</table>
 
 ---
 
