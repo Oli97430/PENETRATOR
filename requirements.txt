@@ -1,0 +1,19 @@
+# --- Core UI (CLI + modern GUI) ---
+rich>=13.7.0
+colorama>=0.4.6
+customtkinter>=5.2.2
+CTkMessagebox>=2.7
+darkdetect>=0.8.0
+
+# --- Networking / HTTP ---
+requests>=2.31.0
+
+# --- DNS / WHOIS ---
+dnspython>=2.6.0
+python-whois>=0.9.0
+
+# --- Image steganography + forensic EXIF ---
+Pillow>=10.0.0
+
+# --- OSINT ---
+phonenumbers>=8.13.0
