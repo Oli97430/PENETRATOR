@@ -271,18 +271,30 @@ class LogConsole(Card):
     def save_to_file(self) -> None:
         from tkinter import filedialog
         from datetime import datetime
+        import json as _json
         default = f"penetrator_log_{datetime.now():%Y%m%d_%H%M%S}.txt"
         path = filedialog.asksaveasfilename(
             defaultextension=".txt",
             initialfile=default,
-            filetypes=[("Text", "*.txt"), ("All files", "*.*")],
+            filetypes=[
+                ("Text", "*.txt"),
+                ("JSON (structured)", "*.json"),
+                ("All files", "*.*"),
+            ],
         )
         if not path:
             return
-        content = self.box.get("1.0", "end")
+        content = self.box.get("1.0", "end").rstrip()
         try:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(content)
+            if path.lower().endswith(".json"):
+                # Export as a JSON list of {timestamp, line} entries
+                entries = [{"line": line} for line in content.splitlines() if line]
+                with open(path, "w", encoding="utf-8") as fh:
+                    _json.dump({"version": 1, "entries": entries}, fh,
+                               ensure_ascii=False, indent=2)
+            else:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(content + "\n")
             self.write(f"[+] Log saved -> {path}", "ok")
         except OSError as exc:
             self.write(f"[-] Cannot save log: {exc}", "err")

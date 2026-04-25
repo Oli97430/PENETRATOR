@@ -49,6 +49,8 @@ class ToolCard(Card):
         self.on_run = on_run
         self.runner = runner
         self.log = log
+        self._memory_key = f"form_memory.{title}"
+        self._fields = fields
 
         self.grid_columnconfigure(0, weight=1)
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -63,6 +65,7 @@ class ToolCard(Card):
         self.form = InputForm(self, fields)
         self.form.grid(row=2, column=0, sticky="ew", padx=10, pady=(2, 6))
         self.form.configure(fg_color="transparent", border_width=0)
+        self._restore_form_memory()
 
         run_row = ctk.CTkFrame(self, fg_color="transparent")
         run_row.grid(row=3, column=0, sticky="ew", padx=14, pady=(4, 14))
@@ -77,6 +80,7 @@ class ToolCard(Card):
 
     def _dispatch(self) -> None:
         values = self.form.values()
+        self._save_form_memory(values)
         self.log.write(f"[*] {t('ui.running')}", "cyan")
         self.run_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
@@ -93,6 +97,54 @@ class ToolCard(Card):
 
     def _stop(self) -> None:
         self.runner.request_stop()
+
+    # ------------------------------------------------------------------
+    # Form-memory: persist per-tool inputs across launches
+    # ------------------------------------------------------------------
+    def _save_form_memory(self, values: dict[str, Any]) -> None:
+        try:
+            from core.i18n import I18n
+            i18n = I18n.get()
+            store = i18n.get_config("form_memory", {}) or {}
+            # Don't persist passwords or large textareas
+            slim = {}
+            for f in self._fields:
+                if f.kind in ("password", "textarea"):
+                    continue
+                v = values.get(f.key)
+                if isinstance(v, (str, int, float, bool)):
+                    slim[f.key] = v
+            if slim:
+                store[self._memory_key] = slim
+                i18n.set_config("form_memory", store)
+        except Exception:
+            pass
+
+    def _restore_form_memory(self) -> None:
+        try:
+            from core.i18n import I18n
+            store = I18n.get().get_config("form_memory", {}) or {}
+            saved = store.get(self._memory_key)
+            if not isinstance(saved, dict):
+                return
+            for f in self._fields:
+                if f.kind in ("password", "textarea"):
+                    continue
+                if f.key not in saved:
+                    continue
+                widget = self.form.vars.get(f.key)
+                if widget is None:
+                    continue
+                value = saved[f.key]
+                try:
+                    if f.kind == "check":
+                        widget.set(bool(value))
+                    else:
+                        widget.set(str(value))
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 class CategoryPanel(ctk.CTkScrollableFrame):

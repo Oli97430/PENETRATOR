@@ -33,8 +33,11 @@ from gui import tools as tool_frames
 
 
 class _StatusAwareRunner(TaskRunner):
-    """TaskRunner that updates a status label when busy/idle and wires the
-    engine cancellation hook."""
+    """TaskRunner that updates a status label when busy/idle, wires the
+    engine cancellation hook, and shows a tray notification when a long task
+    completes while the window isn't focused."""
+
+    LONG_TASK_THRESHOLD_SEC = 15  # only notify if task ran > 15s
 
     def __init__(self, root, log, status_label):
         super().__init__(root, log)
@@ -52,14 +55,53 @@ class _StatusAwareRunner(TaskRunner):
         except Exception:
             pass
 
+        import time
+        start = time.time()
+
         def wrapped_done():
             try:
                 self.status.configure(text="● Ready", text_color=T.GREEN)
             except Exception:
                 pass
+            elapsed = time.time() - start
+            if elapsed > self.LONG_TASK_THRESHOLD_SEC:
+                self._notify_complete(elapsed)
             if on_done is not None:
                 on_done()
         super().run(fn, on_done=wrapped_done)
+
+    def _notify_complete(self, elapsed: float) -> None:
+        """Best-effort cross-method completion notification."""
+        # If app is focused, no need to nag.
+        try:
+            if self.root.focus_displayof() is not None:
+                return
+        except Exception:
+            pass
+
+        # Try Windows toast via win10toast-click (lightweight, optional).
+        try:
+            from win10toast import ToastNotifier  # type: ignore
+            ToastNotifier().show_toast(
+                "PENETRATOR",
+                f"Task finished in {elapsed:.1f}s",
+                duration=4,
+                threaded=True,
+            )
+            return
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # Fallback: bell + window attribute flash.
+        try:
+            self.root.bell()
+            self.root.attributes("-topmost", True)
+            self.root.after(400,
+                            lambda: self.root.attributes("-topmost", False))
+        except Exception:
+            pass
 
 
 CATEGORIES: list[tuple[str, str, str, str]] = [
@@ -90,7 +132,7 @@ LANG_LABELS = {
 
 
 class Sidebar(ctk.CTkFrame):
-    """Vertical category list."""
+    """Vertical category list with optional filter."""
 
     def __init__(self, master, on_select: Callable[[str], None]):
         super().__init__(master, fg_color=T.BG_SURFACE, corner_radius=0,
@@ -98,9 +140,9 @@ class Sidebar(ctk.CTkFrame):
         self.on_select = on_select
         self.buttons: dict[str, ctk.CTkButton] = {}
         self.current: str | None = None
+        self._labels: dict[str, str] = {}
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(len(CATEGORIES) + 2, weight=1)  # spacer
 
         # title
         title = ctk.CTkLabel(
@@ -109,24 +151,51 @@ class Sidebar(ctk.CTkFrame):
         )
         title.grid(row=0, column=0, sticky="ew", padx=16, pady=(18, 2))
         sub = MutedLabel(self, t("app.tagline"))
-        sub.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
+        sub.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 8))
 
+        # search bar
+        self.search_var = ctk.StringVar()
+        self.search_var.trace_add("write", lambda *_: self._apply_filter())
+        search = ctk.CTkEntry(
+            self, textvariable=self.search_var,
+            placeholder_text="🔍  filter...",
+            font=T.FONT_BODY, fg_color=T.BG_BASE, border_color=T.BORDER,
+            border_width=1, height=30, corner_radius=T.RADIUS_SM,
+        )
+        search.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+
+        # main category buttons (rows 3..3+N)
         for i, (key, icon, label_k, _) in enumerate(CATEGORIES):
-            btn = self._make_btn(key, icon, t(label_k))
-            btn.grid(row=2 + i, column=0, sticky="ew", padx=8, pady=2)
+            label = t(label_k)
+            self._labels[key] = label
+            btn = self._make_btn(key, icon, label)
+            btn.grid(row=3 + i, column=0, sticky="ew", padx=8, pady=2)
             self.buttons[key] = btn
 
-        # spacer: row (2 + len(CATEGORIES))
+        # spacer row
+        self.grid_rowconfigure(3 + len(CATEGORIES), weight=1)
 
+        # bottom buttons
         for j, (key, icon, label_k, _) in enumerate(BOTTOM_CATEGORIES):
-            btn = self._make_btn(key, icon, t(label_k))
-            btn.grid(row=3 + len(CATEGORIES) + j, column=0, sticky="ew",
+            label = t(label_k)
+            self._labels[key] = label
+            btn = self._make_btn(key, icon, label)
+            btn.grid(row=4 + len(CATEGORIES) + j, column=0, sticky="ew",
                      padx=8, pady=2)
             self.buttons[key] = btn
 
         # trailing padding
         ctk.CTkLabel(self, text="", fg_color="transparent").grid(
-            row=4 + len(CATEGORIES) + len(BOTTOM_CATEGORIES), column=0, pady=6)
+            row=5 + len(CATEGORIES) + len(BOTTOM_CATEGORIES), column=0, pady=6)
+
+    def _apply_filter(self) -> None:
+        query = self.search_var.get().strip().lower()
+        for key, btn in self.buttons.items():
+            label = self._labels.get(key, "").lower()
+            if not query or query in label or query in key:
+                btn.grid()
+            else:
+                btn.grid_remove()
 
     def _make_btn(self, key: str, icon: str, label: str) -> ctk.CTkButton:
         color = T.CATEGORY_COLORS.get(key, T.ACCENT)
