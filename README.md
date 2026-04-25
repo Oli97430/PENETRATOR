@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>The modern Windows-native penetration testing toolkit.</strong><br/>
-  <em>42&nbsp;tools · 11&nbsp;categories · 3&nbsp;langues · 1 interface</em>
+  <em>49&nbsp;tools · 11&nbsp;categories · 5&nbsp;langues · 1 interface</em>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-ff3860?style=for-the-badge&labelColor=172029"/>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22d3ee?style=for-the-badge&labelColor=172029"/>
   <img alt="UI" src="https://img.shields.io/badge/UI-CustomTkinter-a855f7?style=for-the-badge&labelColor=172029"/>
-  <img alt="Languages" src="https://img.shields.io/badge/i18n-EN%20%7C%20FR%20%7C%20%E4%B8%AD%E6%96%87-facc15?style=for-the-badge&labelColor=172029"/>
+  <img alt="Languages" src="https://img.shields.io/badge/i18n-EN%20%7C%20FR%20%7C%20ZH%20%7C%20ES%20%7C%20DE-facc15?style=for-the-badge&labelColor=172029"/>
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@ A complete, Windows-first Python 3 penetration testing toolkit — **no WSL, no 
 
 Ships with a **dark modern GUI** (CustomTkinter) *and* a Rich-powered **classic CLI**. Both wrap the same internal engine.
 
-> 🇬🇧 English &nbsp;·&nbsp; 🇫🇷 Français &nbsp;·&nbsp; 🇨🇳 中文 — switchable in one click, live.
+> 🇬🇧 English &nbsp;·&nbsp; 🇫🇷 Français &nbsp;·&nbsp; 🇨🇳 中文 &nbsp;·&nbsp; 🇪🇸 Español &nbsp;·&nbsp; 🇩🇪 Deutsch — switchable in one click, live.
 
 ---
 
@@ -119,27 +119,33 @@ EN · FR · 中文 — bascule live, zéro redémarrage.
 <table>
 <tr>
 <td width="50%"><img src="assets/screenshots/02-password-tools.png" alt="Password Tools"/></td>
-<td width="50%"><img src="assets/screenshots/03-osint.png" alt="OSINT"/></td>
-</tr>
-<tr>
-<td align="center"><em>🔑 Password Tools</em></td>
-<td align="center"><em>🕵️ OSINT</em></td>
-</tr>
-<tr>
-<td width="50%"><img src="assets/screenshots/04-payload.png" alt="Payload Generator"/></td>
-<td width="50%"><img src="assets/screenshots/05-steganography.png" alt="Steganography"/></td>
-</tr>
-<tr>
-<td align="center"><em>💣 Payload Generator</em></td>
-<td align="center"><em>🖼️ Steganography</em></td>
-</tr>
-<tr>
-<td width="50%"><img src="assets/screenshots/07-settings.png" alt="Settings"/></td>
 <td width="50%"><img src="assets/screenshots/06-about.png" alt="About"/></td>
 </tr>
 <tr>
-<td align="center"><em>⚙️ Settings — language live-switch</em></td>
+<td align="center"><em>🔑 Password Tools (with HIBP, JWT)</em></td>
 <td align="center"><em>ℹ️ About</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="assets/screenshots/04-payload.png" alt="Payload Generator"/></td>
+<td width="50%"><img src="assets/screenshots/08-web-attacks.png" alt="Web Attacks (HTTP Repeater)"/></td>
+</tr>
+<tr>
+<td align="center"><em>💣 Payload Generator</em></td>
+<td align="center"><em>🌐 Web Attacks (with HTTP Repeater)</em></td>
+</tr>
+<tr>
+<td width="50%"><img src="assets/screenshots/05-steganography.png" alt="Steganography"/></td>
+<td width="50%"><img src="assets/screenshots/03-osint.png" alt="OSINT"/></td>
+</tr>
+<tr>
+<td align="center"><em>🖼️ Steganography</em></td>
+<td align="center"><em>🕵️ OSINT</em></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><img src="assets/screenshots/07-settings.png" alt="Settings" width="60%"/></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><em>⚙️ Settings — 5 languages, live-switch (EN / FR / ZH / ES / DE)</em></td>
 </tr>
 </table>
 

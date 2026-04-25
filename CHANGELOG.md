@@ -7,11 +7,51 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-### Added
-- GitHub Actions CI: compile + pytest + locale check on every push.
-- Test suite (`tests/`) with 19 functional checks of `gui.engine.*`.
-- `tests/check_locales.py` — verifies every `t()` / `label_key` / `description_key`
-  resolves in EN / FR / ZH.
+## [1.2.0] — 2026-04-26
+
+### Added — Tools (7 new)
+- **crt.sh subdomain enumeration** via Certificate Transparency logs.
+- **Banner grabbing** — port scan + grab service banners on open ports.
+- **TLS / SSL Scanner** — cert chain, expiry, legacy SSLv3 / TLS 1.0 / 1.1 probe.
+- **Subdomain Takeover Detector** — 17 service fingerprints (S3, GitHub Pages,
+  Heroku, Azure, Fastly, Shopify, etc.).
+- **HIBP Pwned Password check** via k-anonymity API (no key needed).
+- **JWT Decoder** + **JWT HMAC brute-force** (HS256/384/512).
+- **HTTP Repeater** — Burp-like custom request sender.
+
+### Added — UX
+- **Stop button** on every tool — cooperative cancellation via
+  `threading.Event` + engine-level `_should_stop()` checks in long loops.
+- **Form memory** — every tool remembers its inputs across launches
+  (passwords and large textareas excluded).
+- **Sidebar search bar** — live-filter categories.
+- **JSON export** of the log console alongside `.txt`.
+- **Completion toast** — Windows toast or bell+flash when a long task (>15s)
+  ends while the window is unfocused.
+- **Auto-updater** — checks GitHub Releases on launch and announces newer
+  versions in the log.
+- **Plugin system** — drop a `.py` file in `plugins/` defining a `PLUGIN`
+  dict, and PENETRATOR loads it into the matching category panel.
+
+### Added — i18n
+- **Spanish (es)** locale — full translation, 244 keys.
+- **German (de)** locale — full translation, 244 keys.
+- 5 supported languages: EN / FR / ZH / ES / DE — live switchable.
+
+### Added — Project hygiene
+- GitHub Actions CI: compile + pytest + locale check on Win 3.10/3.11/3.12.
+- pytest suite (`tests/`) — 21 functional checks of `gui.engine.*`.
+- `tests/check_locales.py` — validates every translation key across all locales.
+- Dependabot config (weekly pip + monthly actions).
+- Issue + PR templates (bug, feature request).
+- `CONTRIBUTING.md` and full `pyproject.toml` (ruff + pytest config).
+- Pre-commit hooks (ruff format + lint + whitespace).
+- Branch protection on `main` (no force-push, no delete).
+
+### Changed
+- 12 hardcoded English strings in `gui/tools.py` moved to `ui.*` i18n keys.
+- `PENETRATOR.spec` now excludes matplotlib / numpy / scipy / jupyter — exe
+  download trimmed by ~30 MB.
 
 ## [1.1.0] — 2026-04-25
 
