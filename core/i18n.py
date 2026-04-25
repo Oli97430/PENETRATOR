@@ -13,7 +13,7 @@ from typing import Any
 class I18n:
     """Minimal dot-notation JSON translation loader."""
 
-    SUPPORTED = ("en", "fr", "zh")
+    SUPPORTED = ("en", "fr", "zh", "es", "de")
     DEFAULT = "en"
 
     _instance: "I18n | None" = None

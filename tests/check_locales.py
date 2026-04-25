@@ -44,8 +44,11 @@ def resolve(data: dict, key: str) -> bool:
 def main() -> int:
     keys = collect_keys()
     locales = {}
-    for lang in ("en", "fr", "zh"):
+    for lang in ("en", "fr", "zh", "es", "de"):
         path = LOCALES / f"{lang}.json"
+        if not path.exists():
+            print(f"[!] {lang}.json missing — skipped")
+            continue
         locales[lang] = json.loads(path.read_text(encoding="utf-8"))
 
     missing: dict[str, list[str]] = {lang: [] for lang in locales}

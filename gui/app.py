@@ -128,6 +128,8 @@ LANG_LABELS = {
     "en": "English",
     "fr": "Français",
     "zh": "中文",
+    "es": "Español",
+    "de": "Deutsch",
 }
 
 
