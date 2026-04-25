@@ -26,7 +26,7 @@
 
 ## 🗡️ What is PENETRATOR?
 
-A complete, Windows-first Python 3 rewrite of the legendary [`Z4nzu/hackingtool`](https://github.com/Z4nzu/hackingtool) — **no WSL, no Kali VM, no half-broken ports.**
+A complete, Windows-first Python 3 penetration testing toolkit — **no WSL, no Kali VM, no half-broken ports.**
 
 Ships with a **dark modern GUI** (CustomTkinter) *and* a Rich-powered **classic CLI**. Both wrap the same internal engine.
 
@@ -152,7 +152,7 @@ Les cas légitimes restent couverts par l'OSINT, le pentest web et l'audit de mo
 
 ## 📜 License
 
-MIT · Inspired by [`Z4nzu/hackingtool`](https://github.com/Z4nzu/hackingtool)
+MIT License
 
 **Author** — Tarraw · [Tarraw974@gmail.com](mailto:Tarraw974@gmail.com)
 
