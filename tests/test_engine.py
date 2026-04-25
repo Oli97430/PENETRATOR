@@ -153,3 +153,53 @@ def test_reverse_shell_template_renders():
     assert "Bash" in E.REVERSE_SHELL_TEMPLATES
     rendered = E.REVERSE_SHELL_TEMPLATES["Bash"].format(lhost="1.2.3.4", lport="4444")
     assert "1.2.3.4" in rendered and "4444" in rendered
+
+
+# ---------------------------------------------------------------------------
+# JWT toolkit
+# ---------------------------------------------------------------------------
+def test_jwt_decode():
+    # eyJ... = header {"alg":"HS256","typ":"JWT"}
+    # payload {"sub":"1234","name":"alice"}
+    # signed with secret "key"
+    token = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0IiwibmFtZSI6ImFsaWNlIn0."
+        "wsCt3uM-EFr9SLrYy_x0XZX46hYQbQXtKPYRMM10qNk"
+    )
+    out = E.jwt_decode(token, _log)
+    assert out["header"]["alg"] == "HS256"
+    assert out["payload"]["sub"] == "1234"
+    assert out["payload"]["name"] == "alice"
+
+
+def test_jwt_brute_finds_secret(tmp_path: Path):
+    import hmac as _hmac
+    import json as _json
+    import base64 as _b64
+
+    def _b64u(b: bytes) -> str:
+        return _b64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    header = _b64u(_json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    payload = _b64u(_json.dumps({"x": 1}).encode())
+    signing_input = (header + "." + payload).encode()
+    secret = "letmein"
+    sig = _hmac.new(secret.encode(), signing_input, "sha256").digest()
+    token = f"{header}.{payload}.{_b64u(sig)}"
+
+    wl = tmp_path / "wl.txt"
+    wl.write_text("admin\nletmein\nfoo\n", encoding="utf-8")
+    assert E.jwt_brute(token, str(wl), _log) == secret
+
+
+# ---------------------------------------------------------------------------
+# Banner / TLS / takeover — smoke tests (no network required)
+# ---------------------------------------------------------------------------
+def test_takeover_fingerprints_loaded():
+    assert len(E.TAKEOVER_FINGERPRINTS) >= 10
+    # spot-check structure
+    for service, suffix, fingerprint in E.TAKEOVER_FINGERPRINTS:
+        assert isinstance(service, str) and service
+        assert isinstance(suffix, str) and suffix
+        assert isinstance(fingerprint, str) and fingerprint

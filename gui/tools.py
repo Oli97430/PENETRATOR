@@ -226,6 +226,67 @@ def build_info_gathering(master, runner: TaskRunner, log: LogConsole):
         on_run=run_headers, runner=runner, log=log, category_color=color,
     ))
 
+    # crt.sh subdomain enumeration
+    def run_crtsh(v, lg):
+        dom = _require(v, "domain", lg, t("ui.domain"))
+        if dom: E.crtsh_subdomains(dom, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📜", title=t("modules.info_gathering.crtsh"),
+        description=t("modules.info_gathering.crtsh_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_crtsh, runner=runner, log=log, category_color=color,
+    ))
+
+    # Port scan + banner
+    def run_banner_scan(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        rng = str(v.get("range", "1-1024")).split("-")
+        E.scan_with_banners(target, _int(rng[0], 1), _int(rng[-1], 1024),
+                            _int(v.get("threads"), 100),
+                            _float(v.get("timeout"), 0.6), lg)
+
+    panel.add(ToolCard(
+        panel, icon="🎯", title=t("modules.info_gathering.banner_scan"),
+        description=t("modules.info_gathering.banner_scan_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="example.com"),
+            FormField("range", t("ui.port_range"), default="1-1024"),
+            FormField("threads", t("ui.threads"), default="100"),
+            FormField("timeout", t("ui.timeout"), default="0.6"),
+        ],
+        on_run=run_banner_scan, runner=runner, log=log, category_color=color,
+    ))
+
+    # TLS / SSL scanner
+    def run_tls(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if host: E.tls_scan(host, _int(v.get("port"), 443), lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔒", title=t("modules.info_gathering.tls_scan"),
+        description=t("modules.info_gathering.tls_scan_desc"),
+        fields=[
+            FormField("host", t("ui.host"), placeholder="example.com"),
+            FormField("port", t("ui.port"), default="443"),
+        ],
+        on_run=run_tls, runner=runner, log=log, category_color=color,
+    ))
+
+    # Subdomain takeover
+    def run_takeover(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if host: E.check_subdomain_takeover(host, lg)
+
+    panel.add(ToolCard(
+        panel, icon="⚠️", title=t("modules.info_gathering.takeover"),
+        description=t("modules.info_gathering.takeover_desc"),
+        fields=[FormField("host", t("ui.host"),
+                          placeholder="abandoned.example.com")],
+        on_run=run_takeover, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -496,6 +557,33 @@ def build_web_attacks(master, runner: TaskRunner, log: LogConsole):
         on_run=run_url, runner=runner, log=log, category_color=color,
     ))
 
+    # HTTP Repeater
+    def run_repeat(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        E.http_repeat(
+            str(v.get("method", "GET")), url,
+            str(v.get("headers", "")), str(v.get("body", "")),
+            lg,
+        )
+
+    panel.add(ToolCard(
+        panel, icon="🔁", title=t("modules.web_attacks.repeater"),
+        description=t("modules.web_attacks.repeater_desc"),
+        fields=[
+            FormField("method", t("modules.web_attacks.method"),
+                      kind="combo", default="GET",
+                      options=["GET", "POST", "PUT", "DELETE", "PATCH",
+                               "HEAD", "OPTIONS"]),
+            FormField("url", t("ui.url"), placeholder="https://example.com/api"),
+            FormField("headers", t("modules.web_attacks.headers"),
+                      kind="textarea",
+                      placeholder="Authorization: Bearer ...\nX-Custom: foo"),
+            FormField("body", t("modules.web_attacks.body"), kind="textarea"),
+        ],
+        on_run=run_repeat, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -583,6 +671,50 @@ def build_password_tools(master, runner: TaskRunner, log: LogConsole):
                       placeholder=t("modules.password_tools.include_symbols")),
         ],
         on_run=run_gen, runner=runner, log=log, category_color=color,
+    ))
+
+    # HIBP — pwned password check
+    def run_hibp(v, lg):
+        pw = str(v.get("pw", ""))
+        if not pw:
+            lg(f"[-] {t('ui.required')}", "err"); return
+        E.hibp_password_check(pw, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🛡️", title=t("modules.password_tools.hibp"),
+        description=t("modules.password_tools.hibp_desc"),
+        fields=[FormField("pw", t("ui.password"), kind="password")],
+        on_run=run_hibp, runner=runner, log=log, category_color=color,
+    ))
+
+    # JWT decode
+    def run_jwt_decode(v, lg):
+        tok = _require(v, "token", lg, t("modules.password_tools.jwt_token"))
+        if tok: E.jwt_decode(tok, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🪪", title=t("modules.password_tools.jwt_decode"),
+        description=t("modules.password_tools.jwt_decode_desc"),
+        fields=[FormField("token", t("modules.password_tools.jwt_token"),
+                          kind="textarea")],
+        on_run=run_jwt_decode, runner=runner, log=log, category_color=color,
+    ))
+
+    # JWT brute
+    def run_jwt_brute(v, lg):
+        tok = _require(v, "token", lg, t("modules.password_tools.jwt_token"))
+        wl = _require(v, "wordlist", lg, t("ui.wordlist_path"))
+        if tok and wl: E.jwt_brute(tok, wl, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔓", title=t("modules.password_tools.jwt_brute"),
+        description=t("modules.password_tools.jwt_brute_desc"),
+        fields=[
+            FormField("token", t("modules.password_tools.jwt_token"),
+                      kind="textarea"),
+            FormField("wordlist", t("ui.wordlist_path"), kind="file"),
+        ],
+        on_run=run_jwt_brute, runner=runner, log=log, category_color=color,
     ))
 
     return panel
