@@ -7,7 +7,7 @@ darkdetect>=0.8.0
 tkinterdnd2>=0.4.0
 
 # --- Networking / HTTP ---
-requests>=2.31.0
+requests>=2.32.5
 
 # --- DNS / WHOIS ---
 dnspython>=2.6.0
