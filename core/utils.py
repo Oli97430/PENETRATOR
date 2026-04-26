@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 from rich.console import Console
 from rich.prompt import Confirm, Prompt

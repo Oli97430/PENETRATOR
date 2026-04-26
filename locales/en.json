@@ -50,6 +50,15 @@
     "phone_e164": "Phone (E.164)",
     "msfvenom_args": "msfvenom arguments",
     "wordlist_path": "Wordlist path",
+    "ready": "Ready",
+    "welcome": "Welcome",
+    "filter_placeholder": "🔍  filter...",
+    "task_finished_in": "Task finished in {sec}s",
+    "update_available": "New version available: v{latest}  →  {url}",
+    "update_current": "(you have v{current})",
+    "task_running_quit": "A task is still running. Quit anyway?",
+    "cancel": "Cancel",
+    "quit": "Quit",
     "threads": "Number of threads",
     "timeout": "Timeout (seconds)",
     "required": "This field is required",
@@ -89,7 +98,11 @@
     },
     "settings": {
       "title": "Settings",
-      "change_language": "Change language"
+      "change_language": "Change language",
+      "clear_form_memory": "Clear saved form values",
+      "form_memory_cleared": "All saved form values have been cleared.",
+      "open_repo": "Open project on GitHub",
+      "preferences": "Preferences"
     },
     "language": {
       "title": "Select a language",

@@ -13,15 +13,16 @@ Layout:
 """
 from __future__ import annotations
 
+import contextlib
 from typing import Callable
 
 import customtkinter as ctk
 
-from core.banner import VERSION, AUTHOR
+from core.banner import AUTHOR, VERSION
 from core.i18n import I18n, t
 from gui import theme as T
+from gui import tools as tool_frames
 from gui.widgets import (
-    AccentButton,
     Card,
     GhostButton,
     LogConsole,
@@ -29,7 +30,6 @@ from gui.widgets import (
     SectionTitle,
     TaskRunner,
 )
-from gui import tools as tool_frames
 
 
 class _StatusAwareRunner(TaskRunner):
@@ -50,19 +50,17 @@ class _StatusAwareRunner(TaskRunner):
         if self.is_running():
             self.log.write("[!] A task is already running", "warn")
             return
-        try:
-            self.status.configure(text="● Running...", text_color=T.YELLOW)
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            self.status.configure(text=f"● {t('ui.running').rstrip('.')}",
+                                  text_color=T.YELLOW)
 
         import time
         start = time.time()
 
         def wrapped_done():
-            try:
-                self.status.configure(text="● Ready", text_color=T.GREEN)
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                self.status.configure(text=f"● {t('ui.ready')}",
+                                      text_color=T.GREEN)
             elapsed = time.time() - start
             if elapsed > self.LONG_TASK_THRESHOLD_SEC:
                 self._notify_complete(elapsed)
@@ -73,18 +71,16 @@ class _StatusAwareRunner(TaskRunner):
     def _notify_complete(self, elapsed: float) -> None:
         """Best-effort cross-method completion notification."""
         # If app is focused, no need to nag.
-        try:
+        with contextlib.suppress(Exception):
             if self.root.focus_displayof() is not None:
                 return
-        except Exception:
-            pass
 
         # Try Windows toast via win10toast-click (lightweight, optional).
         try:
             from win10toast import ToastNotifier  # type: ignore
             ToastNotifier().show_toast(
                 "PENETRATOR",
-                f"Task finished in {elapsed:.1f}s",
+                t("ui.task_finished_in", sec=f"{elapsed:.1f}"),
                 duration=4,
                 threaded=True,
             )
@@ -95,13 +91,11 @@ class _StatusAwareRunner(TaskRunner):
             pass
 
         # Fallback: bell + window attribute flash.
-        try:
+        with contextlib.suppress(Exception):
             self.root.bell()
             self.root.attributes("-topmost", True)
             self.root.after(400,
                             lambda: self.root.attributes("-topmost", False))
-        except Exception:
-            pass
 
 
 CATEGORIES: list[tuple[str, str, str, str]] = [
@@ -160,7 +154,7 @@ class Sidebar(ctk.CTkFrame):
         self.search_var.trace_add("write", lambda *_: self._apply_filter())
         search = ctk.CTkEntry(
             self, textvariable=self.search_var,
-            placeholder_text="🔍  filter...",
+            placeholder_text=t("ui.filter_placeholder"),
             font=T.FONT_BODY, fg_color=T.BG_BASE, border_color=T.BORDER,
             border_width=1, height=30, corner_radius=T.RADIUS_SM,
         )
@@ -200,7 +194,7 @@ class Sidebar(ctk.CTkFrame):
                 btn.grid_remove()
 
     def _make_btn(self, key: str, icon: str, label: str) -> ctk.CTkButton:
-        color = T.CATEGORY_COLORS.get(key, T.ACCENT)
+        T.CATEGORY_COLORS.get(key, T.ACCENT)
         return ctk.CTkButton(
             self,
             text=f"  {icon}   {label}",
@@ -280,8 +274,10 @@ class Header(ctk.CTkFrame):
 
 
 class SettingsFrame(Card):
-    def __init__(self, master, on_language_change: Callable[[str], None]):
+    def __init__(self, master, on_language_change: Callable[[str], None],
+                 log: LogConsole | None = None):
         super().__init__(master)
+        self.log = log
         self.grid_columnconfigure(0, weight=1)
         SectionTitle(self, f"⚙️  {t('menu.settings.title')}").grid(
             row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
@@ -292,6 +288,35 @@ class SettingsFrame(Card):
             btn = GhostButton(self, text=f"  {label}  ({code})",
                               command=lambda c=code: on_language_change(c))
             btn.grid(row=2 + i, column=0, sticky="w", padx=18, pady=4)
+
+        # --- Preferences -----------------------------------------------
+        next_row = 2 + len(LANG_LABELS) + 1
+        MutedLabel(self, t("menu.settings.preferences")).grid(
+            row=next_row, column=0, sticky="ew", padx=18, pady=(20, 8))
+
+        clear_btn = GhostButton(
+            self, text=f"  🧹  {t('menu.settings.clear_form_memory')}",
+            command=self._clear_form_memory,
+        )
+        clear_btn.grid(row=next_row + 1, column=0, sticky="w", padx=18, pady=4)
+
+        repo_btn = GhostButton(
+            self, text=f"  🔗  {t('menu.settings.open_repo')}",
+            command=lambda: __import__("webbrowser").open(
+                "https://github.com/Oli97430/PENETRATOR"
+            ),
+        )
+        repo_btn.grid(row=next_row + 2, column=0, sticky="w", padx=18, pady=4)
+
+    def _clear_form_memory(self) -> None:
+        try:
+            I18n.get().set_config("form_memory", {})
+            if self.log is not None:
+                self.log.write(f"[+] {t('menu.settings.form_memory_cleared')}",
+                               "ok")
+        except Exception as exc:
+            if self.log is not None:
+                self.log.write(f"[-] {exc}", "err")
 
 
 class AboutFrame(Card):
@@ -334,7 +359,7 @@ class FirstRunLanguageDialog(ctk.CTkToplevel):
 
     def __init__(self, master, on_pick: Callable[[str], None]):
         super().__init__(master)
-        self.title("PENETRATOR — Welcome")
+        self.title(f"PENETRATOR — {t('ui.welcome')}")
         self.geometry("420x320")
         self.configure(fg_color=T.BG_DEEP)
         self.resizable(False, False)
@@ -428,7 +453,7 @@ class App(ctk.CTk):
         self.status_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
         self.status_bar.grid_columnconfigure(1, weight=1)
         self.status_state = ctk.CTkLabel(
-            self.status_bar, text="● Ready", font=T.FONT_SMALL,
+            self.status_bar, text=f"● {t('ui.ready')}", font=T.FONT_SMALL,
             text_color=T.GREEN, anchor="w",
         )
         self.status_state.grid(row=0, column=0, sticky="w", padx=12, pady=4)
@@ -519,11 +544,11 @@ class App(ctk.CTk):
                 from CTkMessagebox import CTkMessagebox
                 box = CTkMessagebox(
                     title="PENETRATOR",
-                    message="A task is still running. Quit anyway?",
+                    message=t("ui.task_running_quit"),
                     icon="warning",
-                    option_1="Cancel", option_2="Quit",
+                    option_1=t("ui.cancel"), option_2=t("ui.quit"),
                 )
-                if box.get() != "Quit":
+                if box.get() != t("ui.quit"):
                     return
             except ImportError:
                 pass
@@ -552,9 +577,14 @@ class App(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _notify_update(self, info: dict) -> None:
-        msg = (f"[★] New version available: v{info['latest']} "
-               f"(you have v{info['current']})  →  {info['url']}")
-        self.log.write(msg, "accent")
+        self.log.write(
+            "[★] " + t("ui.update_available", latest=info["latest"], url=info["url"]),
+            "accent",
+        )
+        self.log.write(
+            "    " + t("ui.update_current", current=info["current"]),
+            "muted",
+        )
 
     # ------------------------------------------------------------------
     def _clear_content(self) -> None:
@@ -572,6 +602,7 @@ class App(ctk.CTk):
             self.current_frame = SettingsFrame(
                 self.content_holder,
                 on_language_change=self._on_language_change,
+                log=self.log,
             )
         elif key == "about":
             self.current_frame = AboutFrame(self.content_holder)
@@ -634,7 +665,7 @@ class App(ctk.CTk):
         self.status_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
         self.status_bar.grid_columnconfigure(1, weight=1)
         self.status_state = ctk.CTkLabel(
-            self.status_bar, text="● Ready", font=T.FONT_SMALL,
+            self.status_bar, text=f"● {t('ui.ready')}", font=T.FONT_SMALL,
             text_color=T.GREEN, anchor="w",
         )
         self.status_state.grid(row=0, column=0, sticky="w", padx=12, pady=4)

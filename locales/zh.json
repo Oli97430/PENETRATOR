@@ -50,6 +50,15 @@
     "phone_e164": "电话 (E.164)",
     "msfvenom_args": "msfvenom 参数",
     "wordlist_path": "词典路径",
+    "ready": "就绪",
+    "welcome": "欢迎",
+    "filter_placeholder": "🔍  过滤...",
+    "task_finished_in": "任务在 {sec} 秒内完成",
+    "update_available": "新版本可用: v{latest}  →  {url}",
+    "update_current": "(当前 v{current})",
+    "task_running_quit": "任务仍在运行。仍然退出吗？",
+    "cancel": "取消",
+    "quit": "退出",
     "threads": "线程数",
     "timeout": "超时 (秒)",
     "required": "此项为必填",
@@ -89,7 +98,11 @@
     },
     "settings": {
       "title": "设置",
-      "change_language": "更改语言"
+      "change_language": "更改语言",
+      "clear_form_memory": "清除已保存的表单值",
+      "form_memory_cleared": "所有已保存的表单值已被清除。",
+      "open_repo": "在 GitHub 上打开项目",
+      "preferences": "偏好设置"
     },
     "language": {
       "title": "选择语言",

@@ -50,6 +50,15 @@
     "phone_e164": "Téléphone (E.164)",
     "msfvenom_args": "Arguments msfvenom",
     "wordlist_path": "Chemin de la wordlist",
+    "ready": "Prêt",
+    "welcome": "Bienvenue",
+    "filter_placeholder": "🔍  filtrer...",
+    "task_finished_in": "Tâche terminée en {sec}s",
+    "update_available": "Nouvelle version : v{latest}  →  {url}",
+    "update_current": "(vous avez la v{current})",
+    "task_running_quit": "Une tâche est en cours. Quitter quand même ?",
+    "cancel": "Annuler",
+    "quit": "Quitter",
     "threads": "Nombre de threads",
     "timeout": "Délai (secondes)",
     "required": "Ce champ est requis",
@@ -89,7 +98,11 @@
     },
     "settings": {
       "title": "Paramètres",
-      "change_language": "Changer la langue"
+      "change_language": "Changer la langue",
+      "clear_form_memory": "Effacer les champs mémorisés",
+      "form_memory_cleared": "Tous les champs mémorisés ont été effacés.",
+      "open_repo": "Ouvrir le projet sur GitHub",
+      "preferences": "Préférences"
     },
     "language": {
       "title": "Sélectionnez une langue",

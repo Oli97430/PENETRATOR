@@ -509,7 +509,8 @@ def build_sql_injection(master, runner: TaskRunner, log: LogConsole):
     ))
 
     def run_sqlmap(v, lg):
-        import shutil, subprocess
+        import shutil
+        import subprocess
         url = _require(v, "url", lg, t("ui.url"))
         if not url: return
         if not shutil.which("sqlmap"):
@@ -1196,7 +1197,8 @@ def build_payload(master, runner: TaskRunner, log: LogConsole):
     ))
 
     def run_msfvenom(v, lg):
-        import shutil, subprocess
+        import shutil
+        import subprocess
         if not shutil.which("msfvenom"):
             lg(t("ui.missing_tool", tool="msfvenom"), "err"); return
         args = str(v.get("args", "")).split()

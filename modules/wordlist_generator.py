@@ -73,11 +73,10 @@ def cupp_like() -> None:
     # Suffix with birthday parts and years
     final: set[str] = set(combined)
     suffixes = list(SHORT_SUFFIXES)
-    if birthday:
-        if len(birthday) >= 4:
-            suffixes.append(birthday)
-            suffixes.append(birthday[-4:])
-            suffixes.append(birthday[-2:])
+    if birthday and len(birthday) >= 4:
+        suffixes.append(birthday)
+        suffixes.append(birthday[-4:])
+        suffixes.append(birthday[-2:])
     suffixes.extend(YEAR_SUFFIXES)
 
     for word in combined:

@@ -7,6 +7,38 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-04-26
+
+### Added
+- **Settings panel** gains a *Preferences* section: clear saved form values
+  + open project on GitHub.
+- **CLI smoke tests** (`tests/test_cli.py`): version format, banner render,
+  i18n singleton, menu instantiation. Brings test suite to **27/27**.
+
+### Changed
+- Status bar, first-run dialog title, search placeholder, completion toast
+  message, close-confirmation popup, and auto-updater banner all now go
+  through `t()` — fully translated in EN / FR / ZH / ES / DE.
+- Auto-updater message now shows "you have v{current}" on a separate line.
+- `Image.getdata()` replaced with the modern `image.load()` pixel-access API
+  (Pillow 14 will remove `getdata`).
+- Ruff `--fix` pass cleaned 10 issues automatically; remaining warnings are
+  documented advisory output (sent to GitHub Step Summary, no error annotations).
+
+### Fixed
+- CI no longer floods PRs with red `##[error]` annotations from advisory
+  ruff output.
+- `tkinterdnd2` is now bundled inside the standalone exe — drag-and-drop
+  works out of the box for users on the .exe distribution.
+
+### i18n
+- 13 new `ui.*` keys (`ready`, `welcome`, `cancel`, `quit`,
+  `task_running_quit`, `update_available`, `update_current`,
+  `task_finished_in`, `filter_placeholder`, …).
+- 4 new `menu.settings.*` keys (`clear_form_memory`, `form_memory_cleared`,
+  `open_repo`, `preferences`).
+- **271 keys × 5 languages = 1355 entries**, all resolved.
+
 ## [1.3.0] — 2026-04-26
 
 ### Added — Tools (6 new)

@@ -143,9 +143,9 @@ def username_search() -> None:
         for fut in as_completed(futures):
             site, url, code = fut.result()
             if code == 200:
-                table.add_row(site, f"[green]200[/]", url)
+                table.add_row(site, "[green]200[/]", url)
             elif code == 404:
-                table.add_row(site, f"[dim]404[/]", url)
+                table.add_row(site, "[dim]404[/]", url)
             elif code == 0:
                 table.add_row(site, "[red]ERR[/]", url)
             else:

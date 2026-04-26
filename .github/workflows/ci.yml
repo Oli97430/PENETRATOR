@@ -34,8 +34,15 @@ jobs:
           python -m compileall -q core gui modules penetrator.py penetrator_cli.py tests
 
       - name: Lint (ruff, advisory)
-        run: ruff check . --output-format=concise
-        continue-on-error: true
+        shell: pwsh
+        run: |
+          $output = ruff check . --output-format=concise 2>&1 | Out-String
+          Write-Output "## Ruff lint (advisory)" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "``````" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output $output >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "``````" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output $output
+          exit 0
 
       - name: Engine functional tests
         run: python -m pytest tests/ -v

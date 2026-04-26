@@ -18,7 +18,8 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
+from collections.abc import Iterable
 
 Logger = Callable[..., None]  # log(msg, tag=...)
 
@@ -656,19 +657,28 @@ def image_hide(cover: str, message: str, output: str, log: Logger) -> str | None
         log(f"[-] Cover not found: {cover}", "err")
         return None
     image = Image.open(src).convert("RGB")
-    pixels = list(image.getdata())
+    # Use .load() pixel access (modern API; avoids getdata() deprecation in Pillow 14)
+    px = image.load()
+    w, h = image.size
     bits = _text_to_bits(message + DELIMITER)
-    if len(bits) > len(pixels) * 3:
+    if len(bits) > w * h * 3:
         log("[-] Cover image too small for the message", "err")
         return None
-    new_pixels: list[tuple[int, int, int]] = []
     bi = 0
-    for r, g, b in pixels:
-        if bi < len(bits): r = (r & ~1) | int(bits[bi]); bi += 1
-        if bi < len(bits): g = (g & ~1) | int(bits[bi]); bi += 1
-        if bi < len(bits): b = (b & ~1) | int(bits[bi]); bi += 1
-        new_pixels.append((r, g, b))
-    image.putdata(new_pixels)
+    for y in range(h):
+        for x in range(w):
+            if bi >= len(bits):
+                break
+            r, g, b = px[x, y]
+            if bi < len(bits):
+                r = (r & ~1) | int(bits[bi]); bi += 1
+            if bi < len(bits):
+                g = (g & ~1) | int(bits[bi]); bi += 1
+            if bi < len(bits):
+                b = (b & ~1) | int(bits[bi]); bi += 1
+            px[x, y] = (r, g, b)
+        if bi >= len(bits):
+            break
     out = Path(output)
     image.save(out, format="PNG")
     log(f"[+] Saved {out}", "ok")
@@ -686,9 +696,15 @@ def image_extract(stego: str, log: Logger) -> str | None:
         log(f"[-] File not found: {stego}", "err")
         return None
     image = Image.open(src).convert("RGB")
+    px = image.load()
+    w, h = image.size
     bits: list[str] = []
-    for r, g, b in image.getdata():
-        bits.append(str(r & 1)); bits.append(str(g & 1)); bits.append(str(b & 1))
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            bits.append(str(r & 1))
+            bits.append(str(g & 1))
+            bits.append(str(b & 1))
     text = _bits_to_text("".join(bits))
     if DELIMITER in text:
         msg = text.split(DELIMITER, 1)[0]
@@ -1017,9 +1033,8 @@ def cupp_wordlist(values: dict[str, str]) -> set[str]:
     for a, b in itertools.permutations(cased, 2):
         combined.add(a + b)
     suffixes = ["", "1", "12", "123", "1234", "!", "!!", "!@#"] + [str(y) for y in range(1960, 2031)]
-    if birthday:
-        if len(birthday) >= 4:
-            suffixes += [birthday, birthday[-4:], birthday[-2:]]
+    if birthday and len(birthday) >= 4:
+        suffixes += [birthday, birthday[-4:], birthday[-2:]]
     final = set(combined)
     for w in combined:
         for s in suffixes:
@@ -1751,7 +1766,7 @@ def http_repeat(method: str, url: str, headers_text: str, body: str,
         log(f"[-] {exc}", "err"); return {}
 
     log(f"[+] HTTP {resp.status_code}  {resp.reason}", "ok")
-    log(f"  ─── Response headers ───", "muted")
+    log("  ─── Response headers ───", "muted")
     for k, v in resp.headers.items():
         log(f"  {k}: {v}", "info")
     log(f"  ─── Body ({len(resp.content)} bytes) ───", "muted")
