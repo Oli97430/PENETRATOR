@@ -320,6 +320,28 @@ def build_info_gathering(master, runner: TaskRunner, log: LogConsole):
         on_run=run_banner_scan, runner=runner, log=log, category_color=color,
     ))
 
+    # Async port scanner
+    def run_async_scan(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        rng = str(v.get("range", "1-65535")).split("-")
+        E.scan_ports_async(target, _int(rng[0], 1), _int(rng[-1], 65535),
+                           _int(v.get("concurrency"), 500),
+                           _float(v.get("timeout"), 0.5), lg)
+
+    panel.add(ToolCard(
+        panel, icon="⚡", title=t("modules.info_gathering.async_scan"),
+        description=t("modules.info_gathering.async_scan_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="example.com"),
+            FormField("range", t("ui.port_range"), default="1-65535"),
+            FormField("concurrency", t("modules.info_gathering.concurrency"),
+                      default="500"),
+            FormField("timeout", t("ui.timeout"), default="0.5"),
+        ],
+        on_run=run_async_scan, runner=runner, log=log, category_color=color,
+    ))
+
     # TLS / SSL scanner
     def run_tls(v, lg):
         host = _require(v, "host", lg, t("ui.host"))
@@ -643,6 +665,69 @@ def build_web_attacks(master, runner: TaskRunner, log: LogConsole):
             FormField("body", t("modules.web_attacks.body"), kind="textarea"),
         ],
         on_run=run_repeat, runner=runner, log=log, category_color=color,
+    ))
+
+    # CORS misconfig
+    def run_cors(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.cors_test(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🌍", title=t("modules.web_attacks.cors_test"),
+        description=t("modules.web_attacks.cors_test_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com/api")],
+        on_run=run_cors, runner=runner, log=log, category_color=color,
+    ))
+
+    # Open redirect
+    def run_redir(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.open_redirect_test(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="↪️", title=t("modules.web_attacks.open_redirect"),
+        description=t("modules.web_attacks.open_redirect_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://site.com/login?next=https://x")],
+        on_run=run_redir, runner=runner, log=log, category_color=color,
+    ))
+
+    # WAF detection
+    def run_waf(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.waf_detect(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🛡️", title=t("modules.web_attacks.waf_detect"),
+        description=t("modules.web_attacks.waf_detect_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com")],
+        on_run=run_waf, runner=runner, log=log, category_color=color,
+    ))
+
+    # GraphQL introspection
+    def run_gql(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.graphql_introspect(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🟢", title=t("modules.web_attacks.graphql_introspect"),
+        description=t("modules.web_attacks.graphql_introspect_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com/graphql")],
+        on_run=run_gql, runner=runner, log=log, category_color=color,
+    ))
+
+    # IMDS probe
+    def run_imds(v, lg):
+        url = _require(v, "url", lg, t("modules.web_attacks.via_url"))
+        if url: E.imds_check(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="☁️", title=t("modules.web_attacks.imds_check"),
+        description=t("modules.web_attacks.imds_check_desc"),
+        fields=[FormField("url", t("modules.web_attacks.via_url"),
+                          placeholder="https://victim/proxy?u={TARGET}")],
+        on_run=run_imds, runner=runner, log=log, category_color=color,
     ))
 
     return panel

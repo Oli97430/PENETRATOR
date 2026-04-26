@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -132,8 +131,10 @@ def test_identify_magic_png(tmp_path: Path):
 
 
 def test_compare_files_diff_offset(tmp_path: Path):
-    a = tmp_path / "a.bin"; b = tmp_path / "b.bin"
-    a.write_bytes(b"AAAA"); b.write_bytes(b"AABB")
+    a = tmp_path / "a.bin"
+    b = tmp_path / "b.bin"
+    a.write_bytes(b"AAAA")
+    b.write_bytes(b"AABB")
     result = E.compare_files(str(a), str(b), _log)
     assert result["offset"] == 2
     assert not result["identical"]
@@ -174,9 +175,9 @@ def test_jwt_decode():
 
 
 def test_jwt_brute_finds_secret(tmp_path: Path):
+    import base64 as _b64
     import hmac as _hmac
     import json as _json
-    import base64 as _b64
 
     def _b64u(b: bytes) -> str:
         return _b64.urlsafe_b64encode(b).decode().rstrip("=")

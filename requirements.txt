@@ -4,6 +4,7 @@ colorama>=0.4.6
 customtkinter>=5.2.2
 CTkMessagebox>=2.7
 darkdetect>=0.8.0
+tkinterdnd2>=0.4.0
 
 # --- Networking / HTTP ---
 requests>=2.31.0

@@ -196,6 +196,8 @@ class InputForm(Card):
                                  command=lambda v=var: self._pick_file(v))
             browse.grid(row=0, column=1, padx=(6, 0))
             self.vars[field.key] = var
+            # Drag-and-drop support (best-effort: requires tkinterdnd2)
+            self._enable_drop(entry, var)
             return frame
         raise ValueError(f"Unknown field kind: {field.kind}")
 
@@ -204,6 +206,20 @@ class InputForm(Card):
         path = filedialog.askopenfilename()
         if path:
             var.set(path)
+
+    def _enable_drop(self, widget, var: ctk.StringVar) -> None:
+        """Wire up drag-and-drop. No-ops if tkinterdnd2 isn't available."""
+        try:
+            import tkinterdnd2  # noqa: F401
+            from tkinterdnd2 import DND_FILES
+        except ImportError:
+            return
+        try:
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>",
+                            lambda e: var.set(e.data.strip("{}").split("} {")[0]))
+        except Exception:
+            pass
 
     def values(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -269,8 +285,9 @@ class LogConsole(Card):
         self.box.configure(state="disabled")
 
     def save_to_file(self) -> None:
-        from tkinter import filedialog
         from datetime import datetime
+        from html import escape as _esc
+        from tkinter import filedialog
         import json as _json
         default = f"penetrator_log_{datetime.now():%Y%m%d_%H%M%S}.txt"
         path = filedialog.asksaveasfilename(
@@ -278,6 +295,7 @@ class LogConsole(Card):
             initialfile=default,
             filetypes=[
                 ("Text", "*.txt"),
+                ("HTML report", "*.html"),
                 ("JSON (structured)", "*.json"),
                 ("All files", "*.*"),
             ],
@@ -286,12 +304,46 @@ class LogConsole(Card):
             return
         content = self.box.get("1.0", "end").rstrip()
         try:
-            if path.lower().endswith(".json"):
-                # Export as a JSON list of {timestamp, line} entries
+            ext = path.lower().rsplit(".", 1)[-1]
+            if ext == "json":
                 entries = [{"line": line} for line in content.splitlines() if line]
                 with open(path, "w", encoding="utf-8") as fh:
                     _json.dump({"version": 1, "entries": entries}, fh,
                                ensure_ascii=False, indent=2)
+            elif ext in ("html", "htm"):
+                lines_html: list[str] = []
+                for line in content.splitlines():
+                    cls = "info"
+                    if line.startswith("[+]"): cls = "ok"
+                    elif line.startswith("[-]"): cls = "err"
+                    elif line.startswith("[!]"): cls = "warn"
+                    elif line.startswith("[*]"): cls = "cyan"
+                    elif line.startswith("[i]"): cls = "muted"
+                    lines_html.append(f'<div class="line {cls}">{_esc(line)}</div>')
+                generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                doc = (
+                    "<!doctype html><meta charset='utf-8'>"
+                    "<title>PENETRATOR log</title>"
+                    "<style>"
+                    "body{background:#0b0f14;color:#e6edf3;"
+                    "font-family:Consolas,monospace;font-size:13px;"
+                    "padding:24px;line-height:1.45}"
+                    "header{border-bottom:1px solid #253241;margin-bottom:18px;"
+                    "padding-bottom:10px}"
+                    "h1{color:#ff3860;margin:0;font-size:20px}"
+                    ".meta{color:#8b949e;font-size:12px}"
+                    ".line{white-space:pre-wrap;word-break:break-word}"
+                    ".info{color:#e6edf3}.ok{color:#10b981}.warn{color:#facc15}"
+                    ".err{color:#ef4444}.cyan{color:#22d3ee}.muted{color:#8b949e}"
+                    "</style>"
+                    "<header>"
+                    "<h1>🗡️ PENETRATOR — log report</h1>"
+                    f"<div class='meta'>Generated {generated}</div>"
+                    "</header>"
+                    + "\n".join(lines_html)
+                )
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(doc)
             else:
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(content + "\n")

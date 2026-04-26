@@ -1395,6 +1395,336 @@ def check_subdomain_takeover(host: str, log: Logger) -> dict:
 # ---------------------------------------------------------------------------
 # HTTP Repeater — send a raw HTTP request, return the response
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Async port scanner — asyncio replaces the thread pool for ~5x speed
+# ---------------------------------------------------------------------------
+def scan_ports_async(target: str, start: int, end: int, concurrency: int,
+                     timeout: float, log: Logger) -> list[int]:
+    """Asyncio-based TCP scan. Massive speedup vs scan_ports() on big ranges."""
+    import asyncio
+    import socket as _socket
+
+    try:
+        ip = _socket.gethostbyname(target)
+    except _socket.gaierror as exc:
+        log(f"[-] Cannot resolve {target}: {exc}", "err")
+        return []
+
+    log(f"[*] Async scan {target} ({ip})  ports {start}-{end}  "
+        f"concurrency={concurrency}", "cyan")
+
+    open_ports: list[int] = []
+    sem = None  # set inside the coroutine
+
+    async def probe(port: int) -> None:
+        async with sem:
+            if _should_stop():
+                return
+            try:
+                fut = asyncio.open_connection(ip, port)
+                reader, writer = await asyncio.wait_for(fut, timeout=timeout)
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                open_ports.append(port)
+                log(f"[+] {port:>5}/tcp   {get_service(port)}", "ok")
+            except (asyncio.TimeoutError, OSError, ConnectionError):
+                pass
+            except Exception:
+                pass
+
+    async def runner() -> None:
+        nonlocal sem
+        sem = asyncio.Semaphore(concurrency)
+        await asyncio.gather(*(probe(p) for p in range(start, end + 1)),
+                             return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        # Already inside an event loop (rare in our threaded use)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(runner())
+        finally:
+            loop.close()
+    log(f"[*] Found {len(open_ports)} open port(s) in {time.time() - t0:.2f}s "
+        "(async)", "cyan")
+    return sorted(open_ports)
+
+
+# ---------------------------------------------------------------------------
+# CORS misconfiguration tester
+# ---------------------------------------------------------------------------
+def cors_test(url: str, log: Logger) -> dict:
+    """Probe a URL with various Origin headers; report risky reflections."""
+    import requests
+    from urllib.parse import urlparse
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    parsed = urlparse(url)
+    origins = [
+        "https://evil.com",
+        f"https://{parsed.hostname}.evil.com",
+        "null",
+        f"http://attacker.{parsed.hostname}",
+        "https://" + (parsed.hostname or "") + ".attacker.io",
+    ]
+    findings: list[dict] = []
+    log(f"[*] CORS test {url}", "cyan")
+    for origin in origins:
+        if _should_stop():
+            return {"findings": findings}
+        try:
+            resp = requests.get(url, timeout=8,
+                                headers={"Origin": origin,
+                                         "User-Agent": "PENETRATOR/1.0"})
+        except requests.RequestException as exc:
+            log(f"  [-] {origin}: {exc}", "muted")
+            continue
+        acao = resp.headers.get("Access-Control-Allow-Origin")
+        acac = resp.headers.get("Access-Control-Allow-Credentials")
+        risky = False
+        notes = []
+        if acao == origin:
+            risky = True
+            notes.append("reflected origin")
+        if acao == "*":
+            notes.append("wildcard")
+        if acac and acac.lower() == "true" and acao and acao != "*":
+            notes.append("creds=true with non-wildcard ACAO")
+            risky = True
+        tag = "err" if risky else "info"
+        log(f"  Origin={origin}  ACAO={acao}  ACAC={acac}  {' / '.join(notes)}",
+            tag)
+        findings.append({"origin": origin, "acao": acao, "acac": acac,
+                         "risky": risky, "notes": notes})
+    risky_n = sum(1 for f in findings if f.get("risky"))
+    log(f"[*] {risky_n} risky configuration(s) detected", "warn" if risky_n else "ok")
+    return {"findings": findings}
+
+
+# ---------------------------------------------------------------------------
+# Open redirect tester
+# ---------------------------------------------------------------------------
+def open_redirect_test(url: str, log: Logger) -> list[tuple[str, str]]:
+    """Try redirect-style payloads in each query parameter."""
+    import requests
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query))
+    if not params:
+        log("[-] URL has no query parameters to test.", "err")
+        return []
+    payloads = [
+        "https://evil.example.com",
+        "//evil.example.com",
+        "/\\evil.example.com",
+        "https:%2f%2fevil.example.com",
+        "https://example.com@evil.example.com",
+    ]
+    findings: list[tuple[str, str]] = []
+    sess = requests.Session()
+    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    for param in params:
+        if _should_stop():
+            break
+        log(f"[*] Testing parameter: {param}", "cyan")
+        for p in payloads:
+            mut = dict(params); mut[param] = p
+            test_url = urlunparse(parsed._replace(query=urlencode(mut)))
+            try:
+                resp = sess.get(test_url, timeout=8, allow_redirects=False)
+            except requests.RequestException:
+                continue
+            loc = resp.headers.get("Location", "")
+            if loc and ("evil.example.com" in loc):
+                findings.append((param, p))
+                log(f"[+] Redirect to attacker domain via {param}={p}  Location={loc}",
+                    "err")
+    if not findings:
+        log("[+] No open-redirect indicator found", "ok")
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# WAF detection
+# ---------------------------------------------------------------------------
+WAF_SIGNATURES: list[tuple[str, list[tuple[str, str]]]] = [
+    # name, list of (where, regex) — where ∈ "header" / "cookie" / "body" / "server"
+    ("Cloudflare",        [("header", "cf-ray"), ("server", "cloudflare")]),
+    ("AWS WAF",           [("header", "x-amzn-requestid"), ("header", "x-amz-cf-id")]),
+    ("Akamai",            [("header", "akamai-"), ("server", "akamai")]),
+    ("Imperva Incapsula", [("cookie", "incap_ses"), ("cookie", "visid_incap")]),
+    ("Sucuri",            [("server", "sucuri/"), ("header", "x-sucuri-id")]),
+    ("F5 BIG-IP",         [("cookie", "bigipserver"), ("cookie", "ts[a-z0-9]+=")]),
+    ("Barracuda",         [("cookie", "barra_counter_session"), ("server", "barracuda")]),
+    ("ModSecurity",       [("server", "mod_security"), ("body", "mod_security")]),
+    ("Wallarm",           [("header", "x-wallarm")]),
+    ("StackPath",         [("server", "stackpath")]),
+    ("Fastly",            [("header", "fastly-debug-digest"), ("server", "fastly")]),
+    ("Azure Front Door",  [("header", "x-azure-ref")]),
+    ("Google Cloud Armor",[("server", "google frontend")]),
+]
+
+
+def waf_detect(url: str, log: Logger) -> list[str]:
+    """Send a baseline + a noisy probe and try to fingerprint the WAF."""
+    import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    try:
+        baseline = requests.get(url, timeout=10,
+                                headers={"User-Agent": "PENETRATOR/1.0"},
+                                allow_redirects=True)
+        noisy = requests.get(
+            url + "?id=1' OR 1=1--&xss=<script>alert(1)</script>",
+            timeout=10,
+            headers={"User-Agent": "PENETRATOR/1.0"},
+            allow_redirects=True,
+        )
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err"); return []
+
+    detected: set[str] = set()
+    for resp in (baseline, noisy):
+        headers_str = "\n".join(f"{k.lower()}: {v}" for k, v in resp.headers.items())
+        cookies_str = "\n".join(c.name + "=" for c in resp.cookies)
+        server = resp.headers.get("Server", "").lower()
+        body = (resp.text or "")[:50000].lower()
+        for name, sigs in WAF_SIGNATURES:
+            for where, pattern in sigs:
+                target = {
+                    "header": headers_str,
+                    "cookie": cookies_str,
+                    "server": server,
+                    "body": body,
+                }.get(where, "")
+                if re.search(pattern, target, re.I):
+                    detected.add(name)
+                    break
+
+    if noisy.status_code in (403, 406, 429, 501) and baseline.status_code == 200:
+        detected.add(f"Generic WAF (blocked noisy request: HTTP {noisy.status_code})")
+
+    if detected:
+        for name in sorted(detected):
+            log(f"[+] WAF detected: {name}", "ok")
+    else:
+        log("[!] No WAF signature matched", "warn")
+    return sorted(detected)
+
+
+# ---------------------------------------------------------------------------
+# GraphQL introspection tester
+# ---------------------------------------------------------------------------
+def graphql_introspect(url: str, log: Logger) -> dict:
+    """POST an introspection query; report whether it's enabled."""
+    import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    query = {
+        "query": "query IntrospectionQuery {__schema {types {name kind} "
+                 "queryType {name} mutationType {name} subscriptionType {name}}}"
+    }
+    log(f"[*] GraphQL introspection POST {url}", "cyan")
+    try:
+        resp = requests.post(url, json=query, timeout=10,
+                             headers={"User-Agent": "PENETRATOR/1.0",
+                                      "Content-Type": "application/json"})
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err"); return {}
+    if resp.status_code >= 400:
+        log(f"[!] HTTP {resp.status_code}  introspection probably disabled",
+            "warn")
+        return {"enabled": False, "status": resp.status_code}
+    try:
+        data = resp.json()
+    except ValueError:
+        log("[-] Non-JSON response", "err")
+        return {"enabled": False, "status": resp.status_code}
+    schema = (data.get("data") or {}).get("__schema")
+    if not schema:
+        log("[!] No __schema in response — introspection blocked", "warn")
+        return {"enabled": False, "status": resp.status_code}
+    types = schema.get("types") or []
+    log(f"[+] Introspection ENABLED — {len(types)} types exposed", "err")
+    log(f"  queryType:        {(schema.get('queryType') or {}).get('name')}",
+        "info")
+    log(f"  mutationType:     {(schema.get('mutationType') or {}).get('name')}",
+        "info")
+    log(f"  subscriptionType: {(schema.get('subscriptionType') or {}).get('name')}",
+        "info")
+    sample = ", ".join(sorted({t["name"] for t in types
+                               if not t["name"].startswith("__")})[:15])
+    log(f"  types (sample):   {sample}{'...' if len(types) > 15 else ''}",
+        "info")
+    return {"enabled": True, "types": len(types), "schema": schema}
+
+
+# ---------------------------------------------------------------------------
+# Cloud metadata IMDS reachability check
+# ---------------------------------------------------------------------------
+IMDS_ENDPOINTS: list[tuple[str, str, str]] = [
+    ("AWS IMDSv1",     "http://169.254.169.254/latest/meta-data/", "ami-id"),
+    ("AWS IMDSv2 (ping)", "http://169.254.169.254/latest/api/token", "PUT"),
+    ("Azure",          "http://169.254.169.254/metadata/instance?api-version=2021-02-01", "compute"),
+    ("GCP",            "http://metadata.google.internal/computeMetadata/v1/", ""),
+    ("Alibaba",        "http://100.100.100.200/latest/meta-data/", ""),
+    ("DigitalOcean",   "http://169.254.169.254/metadata/v1/", ""),
+    ("Oracle Cloud",   "http://169.254.169.254/opc/v1/instance/", ""),
+    ("Hetzner",        "http://169.254.169.254/hetzner/v1/metadata", ""),
+]
+
+
+def imds_check(via_url: str, log: Logger) -> list[dict]:
+    """If the target is vulnerable to SSRF, see if cloud IMDS endpoints are
+    reachable through it. ``via_url`` should be a URL with an SSRF parameter
+    placeholder ``{TARGET}`` — e.g. ``https://victim/proxy?u={TARGET}``.
+    If no placeholder is given, probe directly (only useful from inside a VM).
+    """
+    import requests
+    direct = "{TARGET}" not in via_url
+    log(f"[*] IMDS probe ({'direct' if direct else 'via SSRF'})", "cyan")
+    findings: list[dict] = []
+    for name, target, marker in IMDS_ENDPOINTS:
+        if _should_stop():
+            break
+        url = target if direct else via_url.replace("{TARGET}", target)
+        try:
+            if "GCP" in name or "Hetzner" in name:
+                resp = requests.get(url, timeout=5,
+                                    headers={"Metadata-Flavor": "Google",
+                                             "User-Agent": "PENETRATOR/1.0"})
+            elif "Azure" in name:
+                resp = requests.get(url, timeout=5,
+                                    headers={"Metadata": "true",
+                                             "User-Agent": "PENETRATOR/1.0"})
+            elif "IMDSv2" in name:
+                resp = requests.put(url, timeout=5,
+                                    headers={"X-aws-ec2-metadata-token-ttl-seconds": "60",
+                                             "User-Agent": "PENETRATOR/1.0"})
+            else:
+                resp = requests.get(url, timeout=5,
+                                    headers={"User-Agent": "PENETRATOR/1.0"})
+        except requests.RequestException as exc:
+            log(f"  [-] {name}: {exc}", "muted"); continue
+        ok = (resp.status_code == 200
+              and (not marker or marker in resp.text or marker == "PUT"))
+        tag = "err" if ok else "muted"
+        log(f"  [{resp.status_code}] {name}  {url[:70]}", tag)
+        findings.append({"service": name, "url": url,
+                         "status": resp.status_code, "reachable": ok,
+                         "preview": resp.text[:200] if ok else ""})
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# HTTP repeater (defined later — leave the original)
+# ---------------------------------------------------------------------------
 def http_repeat(method: str, url: str, headers_text: str, body: str,
                 log: Logger) -> dict:
     """Send one HTTP request; print the response status + headers + body preview."""
