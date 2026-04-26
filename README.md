@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>The modern Windows-native penetration testing toolkit.</strong><br/>
-  <em>49&nbsp;tools · 11&nbsp;categories · 5&nbsp;langues · 1 interface</em>
+  <em>55&nbsp;tools · 11&nbsp;categories · 5&nbsp;langues · 1 interface</em>
 </p>
 
 <p align="center">
