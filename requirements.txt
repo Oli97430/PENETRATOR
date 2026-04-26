@@ -1,5 +1,5 @@
 # --- Core UI (CLI + modern GUI) ---
-rich>=13.7.0
+rich>=15.0.0
 colorama>=0.4.6
 customtkinter>=5.2.2
 CTkMessagebox>=2.7
