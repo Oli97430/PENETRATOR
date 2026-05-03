@@ -413,6 +413,71 @@ def build_info_gathering(master, runner: TaskRunner, log: LogConsole):
         on_run=run_takeover, runner=runner, log=log, category_color=color,
     ))
 
+    # UDP Scanner
+    def run_udp_scan(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if host: E.udp_scan(host, None, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📡", title=t("modules.info_gathering.udp_scan"),
+        description=t("modules.info_gathering.udp_scan_desc"),
+        fields=[FormField("host", t("ui.host"), placeholder="example.com")],
+        on_run=run_udp_scan, runner=runner, log=log, category_color=color,
+    ))
+
+    # IPv6 Scanner
+    def run_ipv6_scan(v, lg):
+        subnet = _require(v, "subnet", lg, t("ui.subnet"))
+        if subnet: E.ipv6_scan(subnet, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🌐", title=t("modules.info_gathering.ipv6_scan"),
+        description=t("modules.info_gathering.ipv6_scan_desc"),
+        fields=[FormField("subnet", t("ui.subnet"), placeholder="fe80::/64")],
+        on_run=run_ipv6_scan, runner=runner, log=log, category_color=color,
+    ))
+
+    # DNS Zone Transfer
+    def run_dns_axfr(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.dns_axfr(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📋", title=t("modules.info_gathering.dns_axfr"),
+        description=t("modules.info_gathering.dns_axfr_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_dns_axfr, runner=runner, log=log, category_color=color,
+    ))
+
+    # SNMP Walker
+    def run_snmp_walk(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if not host: return
+        community = str(v.get("community", "public")).strip() or "public"
+        E.snmp_walk(host, community, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔍", title=t("modules.info_gathering.snmp_walk"),
+        description=t("modules.info_gathering.snmp_walk_desc"),
+        fields=[
+            FormField("host", t("ui.host"), placeholder="example.com"),
+            FormField("community", t("modules.info_gathering.community"),
+                      default="public"),
+        ],
+        on_run=run_snmp_walk, runner=runner, log=log, category_color=color,
+    ))
+
+    # ARP Spoof Detector
+    def run_arp_spoof_detect(_v, lg):
+        E.arp_spoof_detect("", lg)
+
+    panel.add(ToolCard(
+        panel, icon="🛡️", title=t("modules.info_gathering.arp_spoof_detect"),
+        description=t("modules.info_gathering.arp_spoof_detect_desc"),
+        fields=[],
+        on_run=run_arp_spoof_detect, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -822,6 +887,100 @@ def build_web_attacks(master, runner: TaskRunner, log: LogConsole):
                       default="100"),
         ],
         on_run=run_async_buster, runner=runner, log=log, category_color=color,
+    ))
+
+    # SSRF Scanner
+    def run_ssrf_scan(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        param = _require(v, "param", lg, t("ui.param"))
+        if url and param: E.ssrf_scan(url, param, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔀", title=t("modules.web_attacks.ssrf_scan"),
+        description=t("modules.web_attacks.ssrf_scan_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com/fetch"),
+            FormField("param", t("ui.param"), placeholder="url"),
+        ],
+        on_run=run_ssrf_scan, runner=runner, log=log, category_color=color,
+    ))
+
+    # XXE Tester
+    def run_xxe_test(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.xxe_test(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📄", title=t("modules.web_attacks.xxe_test"),
+        description=t("modules.web_attacks.xxe_test_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com/xml-endpoint")],
+        on_run=run_xxe_test, runner=runner, log=log, category_color=color,
+    ))
+
+    # CRLF Injection
+    def run_crlf_test(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.crlf_test(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="↵", title=t("modules.web_attacks.crlf_test"),
+        description=t("modules.web_attacks.crlf_test_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com/")],
+        on_run=run_crlf_test, runner=runner, log=log, category_color=color,
+    ))
+
+    # Race Condition
+    def run_race_condition(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        method = str(v.get("method", "GET"))
+        body = str(v.get("body", ""))
+        count = _int(v.get("count"), 50)
+        E.race_condition_test(url, method, body, count, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🏁", title=t("modules.web_attacks.race_condition"),
+        description=t("modules.web_attacks.race_condition_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com/api"),
+            FormField("method", t("modules.web_attacks.method"),
+                      kind="combo", default="GET",
+                      options=["GET", "POST", "PUT", "DELETE"]),
+            FormField("body", t("modules.web_attacks.body"), kind="textarea"),
+            FormField("count", t("modules.web_attacks.count"), default="50"),
+        ],
+        on_run=run_race_condition, runner=runner, log=log, category_color=color,
+    ))
+
+    # WebSocket Fuzzer
+    def run_websocket_fuzz(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.websocket_fuzz(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔌", title=t("modules.web_attacks.websocket_fuzz"),
+        description=t("modules.web_attacks.websocket_fuzz_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="ws://host:port/path")],
+        on_run=run_websocket_fuzz, runner=runner, log=log, category_color=color,
+    ))
+
+    # LFI Scanner
+    def run_lfi_scan(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        param = _require(v, "param", lg, t("ui.param"))
+        if url and param: E.lfi_scan(url, param, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📂", title=t("modules.web_attacks.lfi_scan"),
+        description=t("modules.web_attacks.lfi_scan_desc"),
+        fields=[
+            FormField("url", t("ui.url"),
+                      placeholder="https://example.com/page"),
+            FormField("param", t("ui.param"), placeholder="file"),
+        ],
+        on_run=run_lfi_scan, runner=runner, log=log, category_color=color,
     ))
 
     return panel
@@ -1318,6 +1477,22 @@ def build_payload(master, runner: TaskRunner, log: LogConsole):
         on_run=run_msfvenom, runner=runner, log=log, category_color=color,
     ))
 
+    # Privesc Checklist
+    def run_privesc_checklist(v, lg):
+        platform = _require(v, "platform", lg, t("modules.payload.platform"))
+        if platform: E.privesc_checklist(platform, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📈", title=t("modules.payload.privesc_checklist"),
+        description=t("modules.payload.privesc_checklist_desc"),
+        fields=[
+            FormField("platform", t("modules.payload.platform"),
+                      kind="combo", default="Linux",
+                      options=["Windows", "Linux"]),
+        ],
+        on_run=run_privesc_checklist, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -1383,6 +1558,299 @@ def build_osint(master, runner: TaskRunner, log: LogConsole):
         on_run=run_rdns, runner=runner, log=log, category_color=color,
     ))
 
+    # GitHub Dorking
+    def run_github_dorking(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.github_dorking(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🐙", title=t("modules.osint.github_dorking"),
+        description=t("modules.osint.github_dorking_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_github_dorking, runner=runner, log=log, category_color=color,
+    ))
+
+    # Paste Monitor
+    def run_paste_monitor(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.paste_monitor(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📋", title=t("modules.osint.paste_monitor"),
+        description=t("modules.osint.paste_monitor_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_paste_monitor, runner=runner, log=log, category_color=color,
+    ))
+
+    # Domain Reputation
+    def run_domain_reputation(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if target: E.domain_reputation(target, lg)
+
+    panel.add(ToolCard(
+        panel, icon="⭐", title=t("modules.osint.domain_reputation"),
+        description=t("modules.osint.domain_reputation_desc"),
+        fields=[FormField("target", t("ui.target"),
+                          placeholder="example.com or 93.184.216.34")],
+        on_run=run_domain_reputation, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# API Security
+# ---------------------------------------------------------------------------
+def build_api_security(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["api_security"]
+    panel = CategoryPanel(master, t("modules.api_security.title"), "🔗", color)
+
+    # Swagger Discovery
+    def run_swagger_discovery(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.swagger_discovery(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📖", title=t("modules.api_security.swagger_discovery"),
+        description=t("modules.api_security.swagger_discovery_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com")],
+        on_run=run_swagger_discovery, runner=runner, log=log, category_color=color,
+    ))
+
+    # Broken Auth
+    def run_broken_auth(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        token = v.get("token", "")
+        E.broken_auth_test(url, token, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔓", title=t("modules.api_security.broken_auth"),
+        description=t("modules.api_security.broken_auth_desc"),
+        fields=[
+            FormField("url", t("ui.url"),
+                      placeholder="https://example.com/api"),
+            FormField("token", t("modules.api_security.token"),
+                      placeholder="Bearer ..."),
+        ],
+        on_run=run_broken_auth, runner=runner, log=log, category_color=color,
+    ))
+
+    # Mass Assignment
+    def run_mass_assignment(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        method = str(v.get("method", "POST"))
+        body = str(v.get("body", ""))
+        E.mass_assignment_test(url, method, body, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📝", title=t("modules.api_security.mass_assignment"),
+        description=t("modules.api_security.mass_assignment_desc"),
+        fields=[
+            FormField("url", t("ui.url"),
+                      placeholder="https://example.com/api/user"),
+            FormField("method", t("modules.web_attacks.method"),
+                      kind="combo", default="POST",
+                      options=["GET", "POST", "PUT", "DELETE", "PATCH"]),
+            FormField("body", t("modules.web_attacks.body"), kind="textarea"),
+        ],
+        on_run=run_mass_assignment, runner=runner, log=log, category_color=color,
+    ))
+
+    # Rate Limit
+    def run_rate_limit(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        count = _int(v.get("count"), 100)
+        E.rate_limit_test(url, count, lg)
+
+    panel.add(ToolCard(
+        panel, icon="⏱️", title=t("modules.api_security.rate_limit"),
+        description=t("modules.api_security.rate_limit_desc"),
+        fields=[
+            FormField("url", t("ui.url"),
+                      placeholder="https://example.com/api/login"),
+            FormField("count", t("modules.api_security.count"), default="100"),
+        ],
+        on_run=run_rate_limit, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Crypto Tools
+# ---------------------------------------------------------------------------
+def build_crypto_tools(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["crypto_tools"]
+    panel = CategoryPanel(master, t("modules.crypto_tools.title"), "🔐", color)
+
+    # Cipher Suite Grader
+    def run_cipher_suite_grade(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if not host: return
+        port = _int(v.get("port"), 443)
+        E.cipher_suite_grade(host, port, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🏅", title=t("modules.crypto_tools.cipher_suite_grade"),
+        description=t("modules.crypto_tools.cipher_suite_grade_desc"),
+        fields=[
+            FormField("host", t("ui.host"), placeholder="example.com"),
+            FormField("port", t("ui.port"), default="443"),
+        ],
+        on_run=run_cipher_suite_grade, runner=runner, log=log, category_color=color,
+    ))
+
+    # RSA Key Analyzer
+    def run_rsa_key_analyze(v, lg):
+        key = _require(v, "key", lg, t("modules.crypto_tools.public_key"))
+        if key: E.rsa_key_analyze(key, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔑", title=t("modules.crypto_tools.rsa_key_analyze"),
+        description=t("modules.crypto_tools.rsa_key_analyze_desc"),
+        fields=[FormField("key", t("modules.crypto_tools.public_key"),
+                          kind="textarea",
+                          placeholder="-----BEGIN PUBLIC KEY-----")],
+        on_run=run_rsa_key_analyze, runner=runner, log=log, category_color=color,
+    ))
+
+    # CT Monitor
+    def run_ct_monitor(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.ct_monitor(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📜", title=t("modules.crypto_tools.ct_monitor"),
+        description=t("modules.crypto_tools.ct_monitor_desc"),
+        fields=[FormField("domain", t("ui.domain"),
+                          placeholder="example.com")],
+        on_run=run_ct_monitor, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Cloud Security
+# ---------------------------------------------------------------------------
+def build_cloud_security(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["cloud_security"]
+    panel = CategoryPanel(master, t("modules.cloud_security.title"), "☁️", color)
+
+    # S3 Bucket Enum
+    def run_s3_bucket_enum(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.s3_bucket_enum(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🪣", title=t("modules.cloud_security.s3_bucket_enum"),
+        description=t("modules.cloud_security.s3_bucket_enum_desc"),
+        fields=[FormField("domain", t("ui.domain"),
+                          placeholder="example.com")],
+        on_run=run_s3_bucket_enum, runner=runner, log=log, category_color=color,
+    ))
+
+    # Azure Blob Check
+    def run_azure_blob_check(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.azure_blob_check(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔷", title=t("modules.cloud_security.azure_blob_check"),
+        description=t("modules.cloud_security.azure_blob_check_desc"),
+        fields=[FormField("domain", t("ui.domain"),
+                          placeholder="example.com")],
+        on_run=run_azure_blob_check, runner=runner, log=log, category_color=color,
+    ))
+
+    # Git Exposure
+    def run_git_exposure(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.git_exposure_check(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📂", title=t("modules.cloud_security.git_exposure"),
+        description=t("modules.cloud_security.git_exposure_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com")],
+        on_run=run_git_exposure, runner=runner, log=log, category_color=color,
+    ))
+
+    # Firebase Scanner
+    def run_firebase_scan(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if target: E.firebase_scan(target, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔥", title=t("modules.cloud_security.firebase_scan"),
+        description=t("modules.cloud_security.firebase_scan_desc"),
+        fields=[FormField("target", t("ui.target"),
+                          placeholder="project-id.firebaseio.com")],
+        on_run=run_firebase_scan, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Network Attacks
+# ---------------------------------------------------------------------------
+def build_network_attacks(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["network_attacks"]
+    panel = CategoryPanel(master, t("modules.network_attacks.title"), "🖧", color)
+
+    # LDAP Anonymous
+    def run_ldap_anonymous(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if not host: return
+        port = _int(v.get("port"), 389)
+        E.ldap_anonymous_check(host, port, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📒", title=t("modules.network_attacks.ldap_anonymous"),
+        description=t("modules.network_attacks.ldap_anonymous_desc"),
+        fields=[
+            FormField("host", t("ui.host"), placeholder="dc.example.com"),
+            FormField("port", t("ui.port"), default="389"),
+        ],
+        on_run=run_ldap_anonymous, runner=runner, log=log, category_color=color,
+    ))
+
+    # SMB Enum
+    def run_smb_enum(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if host: E.smb_enum(host, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📁", title=t("modules.network_attacks.smb_enum"),
+        description=t("modules.network_attacks.smb_enum_desc"),
+        fields=[FormField("host", t("ui.host"), placeholder="10.0.0.1")],
+        on_run=run_smb_enum, runner=runner, log=log, category_color=color,
+    ))
+
+    # Kerberos Enum
+    def run_kerberos_enum(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        users = _require(v, "users", lg, t("modules.network_attacks.users"))
+        if host and domain and users: E.kerberos_enum(host, domain, users, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🎟️", title=t("modules.network_attacks.kerberos_enum"),
+        description=t("modules.network_attacks.kerberos_enum_desc"),
+        fields=[
+            FormField("host", t("ui.host"), placeholder="dc.example.com"),
+            FormField("domain", t("ui.domain"), placeholder="CORP.LOCAL"),
+            FormField("users", t("modules.network_attacks.users"),
+                      kind="textarea", placeholder="admin\nuser1\nuser2"),
+        ],
+        on_run=run_kerberos_enum, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -1401,6 +1869,10 @@ BUILDERS: dict[str, Callable[..., ctk.CTkBaseClass]] = {
     "forensic":            build_forensic,
     "payload":             build_payload,
     "osint":               build_osint,
+    "api_security":        build_api_security,
+    "crypto_tools":        build_crypto_tools,
+    "cloud_security":      build_cloud_security,
+    "network_attacks":     build_network_attacks,
 }
 
 

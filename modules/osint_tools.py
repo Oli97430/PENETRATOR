@@ -208,6 +208,34 @@ def reverse_dns() -> None:
     pause()
 
 
+# ---------------------------------------------------------------------------
+# Engine-backed advanced OSINT (CLI parity with GUI)
+# ---------------------------------------------------------------------------
+from core.cli_bridge import cli_log  # noqa: E402
+from gui import engine as E          # noqa: E402
+
+
+def github_dork_cli() -> None:
+    domain = ask_input(t("ui.domain"))
+    if domain:
+        E.github_dorking(domain, cli_log)
+    pause()
+
+
+def paste_monitor_cli() -> None:
+    domain = ask_input(t("ui.domain"))
+    if domain:
+        E.paste_monitor(domain, cli_log)
+    pause()
+
+
+def domain_rep_cli() -> None:
+    target = ask_input(t("ui.target"))
+    if target:
+        E.domain_reputation(target, cli_log)
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.osint.title", parent=parent)
     menu.add(MenuItem("modules.osint.email_verify", email_verify,
@@ -220,4 +248,10 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       "modules.osint.phone_info_desc"))
     menu.add(MenuItem("modules.osint.reverse_dns", reverse_dns,
                       "modules.osint.reverse_dns_desc"))
+    menu.add(MenuItem("modules.osint.github_dork", github_dork_cli,
+                      "modules.osint.github_dork_desc"))
+    menu.add(MenuItem("modules.osint.paste_monitor", paste_monitor_cli,
+                      "modules.osint.paste_monitor_desc"))
+    menu.add(MenuItem("modules.osint.domain_rep", domain_rep_cli,
+                      "modules.osint.domain_rep_desc"))
     return menu

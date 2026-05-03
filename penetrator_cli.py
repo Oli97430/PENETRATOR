@@ -37,7 +37,10 @@ from modules import (
     wordlist_generator,
     sql_injection,
     web_attacks,
+    api_security,
     password_tools,
+    crypto_tools,
+    cloud_security,
     steganography,
     xss_tools,
     reverse_engineering,
@@ -128,9 +131,21 @@ def build_main_menu() -> Menu:
         lambda: web_attacks.build_menu(root).run(),
         "menu.main.web_attacks_desc", color="red"))
     root.add(MenuItem(
+        "menu.main.api_security",
+        lambda: api_security.build_menu(root).run(),
+        "menu.main.api_security_desc", color="red"))
+    root.add(MenuItem(
         "menu.main.password_tools",
         lambda: password_tools.build_menu(root).run(),
         "menu.main.password_tools_desc", color="red"))
+    root.add(MenuItem(
+        "menu.main.crypto_tools",
+        lambda: crypto_tools.build_menu(root).run(),
+        "menu.main.crypto_tools_desc", color="red"))
+    root.add(MenuItem(
+        "menu.main.cloud_security",
+        lambda: cloud_security.build_menu(root).run(),
+        "menu.main.cloud_security_desc", color="red"))
     root.add(MenuItem(
         "menu.main.steganography",
         lambda: steganography.build_menu(root).run(),

@@ -346,6 +346,59 @@ def imds_cli() -> None:
     pause()
 
 
+def ssrf_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    param = ask_input(t("modules.web_attacks.ssrf_param"), default="")
+    E.ssrf_scan(url, param, cli_log)
+    pause()
+
+
+def xxe_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.xxe_test(url, cli_log)
+    pause()
+
+
+def crlf_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.crlf_test(url, cli_log)
+    pause()
+
+
+def race_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    method = ask_input(t("modules.web_attacks.method"), default="POST")
+    body = ask_input(t("modules.web_attacks.body"), default="")
+    count = ask_input(t("modules.web_attacks.request_count"), default="50")
+    try:
+        E.race_condition_test(url, method, body, int(count), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
+def ws_fuzz_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.websocket_fuzz(url, cli_log)
+    pause()
+
+
+def lfi_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    param = ask_input(t("modules.web_attacks.lfi_param"), default="")
+    E.lfi_scan(url, param, cli_log)
+    pause()
+
+
 def async_buster_cli() -> None:
     url = ask_input(t("ui.url"))
     if not url:
@@ -397,4 +450,16 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       "modules.web_attacks.smuggling_desc"))
     menu.add(MenuItem("modules.web_attacks.imds_check", imds_cli,
                       "modules.web_attacks.imds_check_desc"))
+    menu.add(MenuItem("modules.web_attacks.ssrf_scan", ssrf_cli,
+                      "modules.web_attacks.ssrf_scan_desc"))
+    menu.add(MenuItem("modules.web_attacks.xxe_test", xxe_cli,
+                      "modules.web_attacks.xxe_test_desc"))
+    menu.add(MenuItem("modules.web_attacks.crlf_test", crlf_cli,
+                      "modules.web_attacks.crlf_test_desc"))
+    menu.add(MenuItem("modules.web_attacks.race_condition", race_cli,
+                      "modules.web_attacks.race_condition_desc"))
+    menu.add(MenuItem("modules.web_attacks.ws_fuzz", ws_fuzz_cli,
+                      "modules.web_attacks.ws_fuzz_desc"))
+    menu.add(MenuItem("modules.web_attacks.lfi_scan", lfi_cli,
+                      "modules.web_attacks.lfi_scan_desc"))
     return menu

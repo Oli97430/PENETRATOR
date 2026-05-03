@@ -41,6 +41,10 @@ CATEGORY_COLORS = {
     "forensic":            "#06b6d4",
     "payload":             "#dc2626",
     "osint":               "#10b981",
+    "api_security":        "#f59e0b",
+    "crypto_tools":        "#06b6d4",
+    "cloud_security":      "#8b5cf6",
+    "network_attacks":     "#dc2626",
     "settings":            "#64748b",
     "about":               "#64748b",
 }

@@ -7,6 +7,68 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-05-03
+
+### Added — Tools (30 new — Advanced Penetration Testing)
+
+#### Web Advanced (6)
+- **SSRF Scanner** — tests parameters for Server-Side Request Forgery with
+  internal-network payloads (127.0.0.1, IMDS, file://, gopher://).
+- **XXE Injection Tester** — sends XML External Entity payloads to XML endpoints.
+- **CRLF Injection** — header injection / HTTP response splitting detection.
+- **Race Condition Tester** — fires N concurrent requests to detect TOCTOU bugs.
+- **WebSocket Fuzzer** — connects to WS endpoints and injects SQLi/XSS/proto payloads.
+- **LFI Scanner** — tests for Local File Inclusion via path traversal + PHP wrappers.
+
+#### Network (5)
+- **UDP Port Scanner** — top-23 UDP ports with protocol-specific probes (DNS, NTP, SNMP, SSDP).
+- **IPv6 Scanner** — discovers live IPv6 hosts on a /64 subnet.
+- **DNS Zone Transfer (AXFR)** — attempts zone transfers on all NS for a domain.
+- **SNMP Walker** — brute-forces community strings and reads sysDescr OID.
+- **ARP Spoof Detector** — reads the ARP table and flags duplicate MAC→IP mappings.
+
+#### API Security (4)
+- **Swagger/OpenAPI Discovery** — brute-forces 22 common API documentation paths.
+- **Broken Auth Tester** — requests without token, invalid token, wrong-user token.
+- **Mass Assignment Scanner** — injects role/admin/isAdmin fields, detects acceptance.
+- **Rate Limit Tester** — sends rapid requests to verify rate-limiting enforcement.
+
+#### Crypto & TLS (3)
+- **Cipher Suite Grader** — analyzes negotiated + available ciphers, grades A–F.
+- **RSA Key Analyzer** — checks key size, exponent, Fermat factorization.
+- **Certificate Transparency Monitor** — queries crt.sh for recently issued certs.
+
+#### Cloud & Infrastructure (7)
+- **S3 Bucket Enumerator** — tests domain-derived bucket names for public access.
+- **Azure Blob Checker** — probes *.blob.core.windows.net containers.
+- **Git Exposure Checker** — detects exposed .git/HEAD, .git/config, .env files.
+- **Firebase DB Scanner** — tests Realtime Database for open read/write rules.
+- **LDAP Anonymous Bind** — checks if LDAP allows unauthenticated queries.
+- **SMB Share Enumerator** — lists shares via null session (net view / smbclient).
+- **Kerberos User Enumeration** — discovers valid AD accounts via AS-REQ.
+
+#### OSINT Advanced (3)
+- **GitHub Dorking** — searches public repos for leaked secrets tied to a domain.
+- **Paste Site Monitor** — checks Pastebin/psbdmp for domain-related leaks.
+- **Domain Reputation** — aggregates Shodan InternetDB, AbuseIPDB, ThreatCrowd.
+
+#### Exploitation Helpers (2)
+- **Privilege Escalation Checklist** — runs Linux/Windows privesc enumeration commands.
+- **Local File Inclusion Scanner** — (listed under Web Advanced above).
+
+### Added — Architecture
+- 4 new GUI categories: **API Security**, **Crypto & TLS**, **Cloud & Infrastructure**,
+  **Network Attacks** — with dedicated sidebar icons and accent colours.
+- 3 new CLI modules: `modules/api_security.py`, `modules/crypto_tools.py`,
+  `modules/cloud_security.py`.
+- `gui/engine.py` grew from 2172 → ~4030 lines (all pure-logic, testable).
+- 77 new i18n keys × 5 languages = 385 new translations.
+
+### Changed
+- Version bumped to **1.5.0**.
+- Sidebar now shows **15 tool categories** (was 11).
+- CLI main menu expanded to **18 entries** (was 14).
+
 ## [1.4.0] — 2026-04-26
 
 ### Added — Tools (8 new)

@@ -411,6 +411,41 @@ def wayback() -> None:
     pause()
 
 
+def udp_scan_cli() -> None:
+    host = ask_input(t("ui.host"))
+    if host:
+        E.udp_scan(host, None, cli_log)
+    pause()
+
+
+def ipv6_scan_cli() -> None:
+    subnet = ask_input(t("modules.info_gathering.subnet"))
+    if subnet:
+        E.ipv6_scan(subnet, cli_log)
+    pause()
+
+
+def dns_axfr_cli() -> None:
+    domain = ask_input(t("ui.domain"))
+    if domain:
+        E.dns_axfr(domain, cli_log)
+    pause()
+
+
+def snmp_walk_cli() -> None:
+    host = ask_input(t("ui.host"))
+    if not host:
+        return
+    community = ask_input(t("modules.info_gathering.community"), default="public")
+    E.snmp_walk(host, community, cli_log)
+    pause()
+
+
+def arp_detect_cli() -> None:
+    E.arp_spoof_detect("", cli_log)
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.info_gathering.title", parent=parent)
     menu.add(MenuItem("modules.info_gathering.port_scan",
@@ -443,4 +478,14 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       nmap_wrapper, "modules.info_gathering.nmap_wrapper_desc"))
     menu.add(MenuItem("modules.info_gathering.traceroute",
                       traceroute, "modules.info_gathering.traceroute_desc"))
+    menu.add(MenuItem("modules.info_gathering.udp_scan",
+                      udp_scan_cli, "modules.info_gathering.udp_scan_desc"))
+    menu.add(MenuItem("modules.info_gathering.ipv6_scan",
+                      ipv6_scan_cli, "modules.info_gathering.ipv6_scan_desc"))
+    menu.add(MenuItem("modules.info_gathering.dns_axfr",
+                      dns_axfr_cli, "modules.info_gathering.dns_axfr_desc"))
+    menu.add(MenuItem("modules.info_gathering.snmp_walk",
+                      snmp_walk_cli, "modules.info_gathering.snmp_walk_desc"))
+    menu.add(MenuItem("modules.info_gathering.arp_detect",
+                      arp_detect_cli, "modules.info_gathering.arp_detect_desc"))
     return menu
