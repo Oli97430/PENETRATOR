@@ -7,6 +7,50 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-04-26
+
+### Added — Tools (8 new)
+- **Async directory buster** — aiohttp-based, ~5× faster on big wordlists.
+- **Async subdomain finder** — asyncio DNS resolution.
+- **Wayback Machine OSINT** — historical URLs from the Internet Archive,
+  highlights `.env` / `.git` / `admin` / `api` / `dump` patterns.
+- **GraphQL field enumeration** — brute-force common field names when
+  introspection is OFF.
+- **HTTP request smuggling detector** — single-pass CL.TE / TE.CL / TE.TE
+  desync probes.
+- **TLS chain tool** — runs TLS scan on every TLS-likely port from the last
+  port scan (cross-tool memory).
+- **Save workspace** (Settings) — exports session memory + log to `.penetrator`.
+- **Load workspace** (Settings) — restores a saved session.
+
+### Added — UX
+- **Ctrl+P quick launcher** — VS Code-style fuzzy command palette
+  (Up/Down/Enter/Esc).
+- **PDF report export** (via fpdf2) and **Markdown report export**
+  alongside HTML / JSON / TXT.
+- **Cross-tool session memory** — `last_target` / `last_open_ports` /
+  `last_subdomains` accessible to chain tools.
+
+### Added — CLI parity
+- 36 menu items now in Info Gathering / Web Attacks / Password Tools
+  (was 17 in v1.3.x). The CLI calls the **same engine** as the GUI through
+  `core/cli_bridge.py` — every Phase-2/3/7 tool is now reachable from the
+  classic terminal UI.
+
+### Added — DevOps
+- **Auto-release on tag**: pushing `v*.*.*` builds the exe and creates a
+  GitHub Release with notes extracted from CHANGELOG.md (no more manual
+  `gh release create`).
+- **CodeQL** Python analysis (per-PR + weekly schedule).
+- **Bandit** security scan with summary report on every push.
+- **pytest-cov + Codecov** badge.
+- 5 new badges on README (CI / CodeQL / Security / Codecov / latest release).
+
+### Changed
+- 289 i18n keys × 5 languages, 0 missing.
+- `Image.getdata()` already replaced in v1.3.1; engine now also writes session
+  state on every port scan.
+
 ## [1.3.1] — 2026-04-26
 
 ### Added

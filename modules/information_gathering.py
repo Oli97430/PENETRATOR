@@ -321,6 +321,96 @@ def traceroute() -> None:
     pause()
 
 
+# ---------------------------------------------------------------------------
+# Engine-backed tools (CLI parity with GUI)
+# ---------------------------------------------------------------------------
+from core.cli_bridge import cli_log  # noqa: E402
+from gui import engine as E          # noqa: E402
+
+
+def crtsh_subdomains() -> None:
+    domain = ask_input(t("ui.domain"))
+    if not domain:
+        return
+    E.crtsh_subdomains(domain, cli_log)
+    pause()
+
+
+def banner_scan() -> None:
+    target = ask_input(t("ui.target"))
+    if not target:
+        return
+    range_str = ask_input(t("ui.port_range"), default="1-1024")
+    threads_s = ask_input(t("ui.threads"), default="100")
+    timeout_s = ask_input(t("ui.timeout"), default="0.6")
+    try:
+        s, e = _parse_port_range(range_str)
+        E.scan_with_banners(target, s, e, int(threads_s),
+                            float(timeout_s), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
+def async_port_scan() -> None:
+    target = ask_input(t("ui.target"))
+    if not target:
+        return
+    range_str = ask_input(t("ui.port_range"), default="1-65535")
+    conc = ask_input(t("modules.info_gathering.concurrency"), default="500")
+    timeout_s = ask_input(t("ui.timeout"), default="0.5")
+    try:
+        s, e = _parse_port_range(range_str)
+        E.scan_ports_async(target, s, e, int(conc), float(timeout_s), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
+def async_subdomain() -> None:
+    domain = ask_input(t("ui.domain"))
+    if not domain:
+        return
+    conc = ask_input(t("modules.info_gathering.concurrency"), default="100")
+    try:
+        E.find_subdomains_async(domain, int(conc), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
+def tls_scanner() -> None:
+    host = ask_input(t("ui.host"))
+    if not host:
+        return
+    port_s = ask_input(t("ui.port"), default="443")
+    try:
+        E.tls_scan(host, int(port_s), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
+def takeover_check() -> None:
+    host = ask_input(t("ui.host"))
+    if not host:
+        return
+    E.check_subdomain_takeover(host, cli_log)
+    pause()
+
+
+def wayback() -> None:
+    domain = ask_input(t("ui.domain"))
+    if not domain:
+        return
+    limit_s = ask_input(t("modules.info_gathering.limit"), default="200")
+    try:
+        E.wayback_urls(domain, int(limit_s), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.info_gathering.title", parent=parent)
     menu.add(MenuItem("modules.info_gathering.port_scan",
@@ -333,6 +423,20 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       dns_lookup, "modules.info_gathering.dns_lookup_desc"))
     menu.add(MenuItem("modules.info_gathering.subdomain_finder",
                       subdomain_finder, "modules.info_gathering.subdomain_finder_desc"))
+    menu.add(MenuItem("modules.info_gathering.async_subdomain",
+                      async_subdomain, "modules.info_gathering.async_subdomain_desc"))
+    menu.add(MenuItem("modules.info_gathering.crtsh",
+                      crtsh_subdomains, "modules.info_gathering.crtsh_desc"))
+    menu.add(MenuItem("modules.info_gathering.banner_scan",
+                      banner_scan, "modules.info_gathering.banner_scan_desc"))
+    menu.add(MenuItem("modules.info_gathering.async_scan",
+                      async_port_scan, "modules.info_gathering.async_scan_desc"))
+    menu.add(MenuItem("modules.info_gathering.tls_scan",
+                      tls_scanner, "modules.info_gathering.tls_scan_desc"))
+    menu.add(MenuItem("modules.info_gathering.takeover",
+                      takeover_check, "modules.info_gathering.takeover_desc"))
+    menu.add(MenuItem("modules.info_gathering.wayback",
+                      wayback, "modules.info_gathering.wayback_desc"))
     menu.add(MenuItem("modules.info_gathering.http_headers",
                       http_headers, "modules.info_gathering.http_headers_desc"))
     menu.add(MenuItem("modules.info_gathering.nmap_wrapper",

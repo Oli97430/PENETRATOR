@@ -161,6 +161,37 @@ def gen_secure_password() -> None:
     pause()
 
 
+# ---------------------------------------------------------------------------
+# Engine-backed CLI tools (parity with GUI)
+# ---------------------------------------------------------------------------
+from core.cli_bridge import cli_log  # noqa: E402
+from gui import engine as E          # noqa: E402
+
+
+def hibp_check_cli() -> None:
+    pw = ask_input(t("ui.password"))
+    if pw:
+        E.hibp_password_check(pw, cli_log)
+    pause()
+
+
+def jwt_decode_cli() -> None:
+    tok = ask_input(t("modules.password_tools.jwt_token"))
+    if tok:
+        E.jwt_decode(tok, cli_log)
+    pause()
+
+
+def jwt_brute_cli() -> None:
+    tok = ask_input(t("modules.password_tools.jwt_token"))
+    if not tok:
+        return
+    wl = ask_input(t("ui.wordlist_path"))
+    if wl:
+        E.jwt_brute(tok, wl, cli_log)
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.password_tools.title", parent=parent)
     menu.add(MenuItem("modules.password_tools.hash_identifier", hash_identifier,
@@ -171,4 +202,10 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       "modules.password_tools.strength_desc"))
     menu.add(MenuItem("modules.password_tools.gen_secure", gen_secure_password,
                       "modules.password_tools.gen_secure_desc"))
+    menu.add(MenuItem("modules.password_tools.hibp", hibp_check_cli,
+                      "modules.password_tools.hibp_desc"))
+    menu.add(MenuItem("modules.password_tools.jwt_decode", jwt_decode_cli,
+                      "modules.password_tools.jwt_decode_desc"))
+    menu.add(MenuItem("modules.password_tools.jwt_brute", jwt_brute_cli,
+                      "modules.password_tools.jwt_brute_desc"))
     return menu

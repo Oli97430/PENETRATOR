@@ -279,10 +279,98 @@ def tech_detect() -> None:
     pause()
 
 
+# ---------------------------------------------------------------------------
+# Engine-backed CLI tools (parity with GUI)
+# ---------------------------------------------------------------------------
+from core.cli_bridge import cli_log  # noqa: E402
+from gui import engine as E          # noqa: E402
+
+
+def http_repeater() -> None:
+    method = ask_input(t("modules.web_attacks.method"), default="GET")
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    headers = ask_input(t("modules.web_attacks.headers"), default="")
+    body = ask_input(t("modules.web_attacks.body"), default="")
+    E.http_repeat(method, url, headers, body, cli_log)
+    pause()
+
+
+def cors_check() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.cors_test(url, cli_log)
+    pause()
+
+
+def open_redirect_check() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.open_redirect_test(url, cli_log)
+    pause()
+
+
+def waf_detect_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.waf_detect(url, cli_log)
+    pause()
+
+
+def graphql_introspect_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.graphql_introspect(url, cli_log)
+    pause()
+
+
+def graphql_field_enum_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.graphql_field_enum(url, cli_log)
+    pause()
+
+
+def smuggling_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.http_smuggling_detect(url, cli_log)
+    pause()
+
+
+def imds_cli() -> None:
+    url = ask_input(t("modules.web_attacks.via_url"))
+    if url:
+        E.imds_check(url, cli_log)
+    pause()
+
+
+def async_buster_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    wl = ask_input(t("ui.wordlist_path"), default="")
+    conc_s = ask_input(t("modules.info_gathering.concurrency"), default="100")
+    from pathlib import Path
+    if wl and Path(wl).is_file():
+        paths = [p.strip() for p in Path(wl).read_text(encoding="utf-8",
+                errors="ignore").splitlines() if p.strip()]
+    else:
+        paths = E.DEFAULT_WEB_PATHS
+    try:
+        E.buster_async(url, paths, int(conc_s), cli_log)
+    except ValueError:
+        print_error(t("ui.invalid_choice"))
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.web_attacks.title", parent=parent)
     menu.add(MenuItem("modules.web_attacks.dir_buster", dir_buster,
                       "modules.web_attacks.dir_buster_desc"))
+    menu.add(MenuItem("modules.web_attacks.async_buster", async_buster_cli,
+                      "modules.web_attacks.async_buster_desc"))
     menu.add(MenuItem("modules.web_attacks.url_checker", url_checker,
                       "modules.web_attacks.url_checker_desc"))
     menu.add(MenuItem("modules.web_attacks.header_scanner", header_scanner,
@@ -291,4 +379,22 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       "modules.web_attacks.robots_sitemap_desc"))
     menu.add(MenuItem("modules.web_attacks.tech_detect", tech_detect,
                       "modules.web_attacks.tech_detect_desc"))
+    menu.add(MenuItem("modules.web_attacks.repeater", http_repeater,
+                      "modules.web_attacks.repeater_desc"))
+    menu.add(MenuItem("modules.web_attacks.cors_test", cors_check,
+                      "modules.web_attacks.cors_test_desc"))
+    menu.add(MenuItem("modules.web_attacks.open_redirect", open_redirect_check,
+                      "modules.web_attacks.open_redirect_desc"))
+    menu.add(MenuItem("modules.web_attacks.waf_detect", waf_detect_cli,
+                      "modules.web_attacks.waf_detect_desc"))
+    menu.add(MenuItem("modules.web_attacks.graphql_introspect",
+                      graphql_introspect_cli,
+                      "modules.web_attacks.graphql_introspect_desc"))
+    menu.add(MenuItem("modules.web_attacks.graphql_field_enum",
+                      graphql_field_enum_cli,
+                      "modules.web_attacks.graphql_field_enum_desc"))
+    menu.add(MenuItem("modules.web_attacks.smuggling", smuggling_cli,
+                      "modules.web_attacks.smuggling_desc"))
+    menu.add(MenuItem("modules.web_attacks.imds_check", imds_cli,
+                      "modules.web_attacks.imds_check_desc"))
     return menu
