@@ -342,6 +342,38 @@ def build_info_gathering(master, runner: TaskRunner, log: LogConsole):
         on_run=run_async_scan, runner=runner, log=log, category_color=color,
     ))
 
+    # Async subdomain finder
+    def run_async_sub(v, lg):
+        dom = _require(v, "domain", lg, t("ui.domain"))
+        if dom: E.find_subdomains_async(
+            dom, _int(v.get("concurrency"), 100), lg)
+
+    panel.add(ToolCard(
+        panel, icon="🚀", title=t("modules.info_gathering.async_subdomain"),
+        description=t("modules.info_gathering.async_subdomain_desc"),
+        fields=[
+            FormField("domain", t("ui.domain"), placeholder="example.com"),
+            FormField("concurrency", t("modules.info_gathering.concurrency"),
+                      default="100"),
+        ],
+        on_run=run_async_sub, runner=runner, log=log, category_color=color,
+    ))
+
+    # Wayback Machine OSINT
+    def run_wayback(v, lg):
+        dom = _require(v, "domain", lg, t("ui.domain"))
+        if dom: E.wayback_urls(dom, _int(v.get("limit"), 200), lg)
+
+    panel.add(ToolCard(
+        panel, icon="🕰️", title=t("modules.info_gathering.wayback"),
+        description=t("modules.info_gathering.wayback_desc"),
+        fields=[
+            FormField("domain", t("ui.domain"), placeholder="example.com"),
+            FormField("limit", t("modules.info_gathering.limit"), default="200"),
+        ],
+        on_run=run_wayback, runner=runner, log=log, category_color=color,
+    ))
+
     # TLS / SSL scanner
     def run_tls(v, lg):
         host = _require(v, "host", lg, t("ui.host"))
@@ -729,6 +761,56 @@ def build_web_attacks(master, runner: TaskRunner, log: LogConsole):
         fields=[FormField("url", t("modules.web_attacks.via_url"),
                           placeholder="https://victim/proxy?u={TARGET}")],
         on_run=run_imds, runner=runner, log=log, category_color=color,
+    ))
+
+    # GraphQL field enum
+    def run_gql_enum(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.graphql_field_enum(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔬", title=t("modules.web_attacks.graphql_field_enum"),
+        description=t("modules.web_attacks.graphql_field_enum_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com/graphql")],
+        on_run=run_gql_enum, runner=runner, log=log, category_color=color,
+    ))
+
+    # HTTP smuggling
+    def run_smug(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.http_smuggling_detect(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📦", title=t("modules.web_attacks.smuggling"),
+        description=t("modules.web_attacks.smuggling_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com/")],
+        on_run=run_smug, runner=runner, log=log, category_color=color,
+    ))
+
+    # Async directory buster
+    def run_async_buster(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        from pathlib import Path
+        wl = str(v.get("wordlist", "")).strip()
+        if wl and Path(wl).is_file():
+            paths = [p.strip() for p in Path(wl).read_text(encoding="utf-8",
+                    errors="ignore").splitlines() if p.strip()]
+        else:
+            paths = E.DEFAULT_WEB_PATHS
+        E.buster_async(url, paths, _int(v.get("concurrency"), 100), lg)
+
+    panel.add(ToolCard(
+        panel, icon="⚡", title=t("modules.web_attacks.async_buster"),
+        description=t("modules.web_attacks.async_buster_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com"),
+            FormField("wordlist", t("ui.wordlist_path"), kind="file"),
+            FormField("concurrency", t("modules.info_gathering.concurrency"),
+                      default="100"),
+        ],
+        on_run=run_async_buster, runner=runner, log=log, category_color=color,
     ))
 
     return panel

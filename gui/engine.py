@@ -1472,6 +1472,337 @@ def scan_ports_async(target: str, start: int, end: int, concurrency: int,
 
 
 # ---------------------------------------------------------------------------
+# Async directory buster
+# ---------------------------------------------------------------------------
+def buster_async(url: str, paths: list[str], concurrency: int,
+                 log: Logger) -> list[tuple[int, str]]:
+    """Asyncio-based directory buster — far faster on big wordlists."""
+    import asyncio
+    try:
+        import aiohttp  # type: ignore
+    except ImportError:
+        log("[!] aiohttp not installed — falling back to threaded buster", "warn")
+        return buster(url, paths, max(concurrency // 5, 10), log)
+
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    url = url.rstrip("/") + "/"
+
+    found: list[tuple[int, str]] = []
+    log(f"[*] Async-busting {url} with {len(paths)} paths "
+        f"concurrency={concurrency}", "cyan")
+
+    async def runner() -> None:
+        sem = asyncio.Semaphore(concurrency)
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": "PENETRATOR/1.0"},
+        ) as session:
+            async def probe(path: str) -> None:
+                async with sem:
+                    if _should_stop():
+                        return
+                    target = url + path.lstrip("/")
+                    try:
+                        async with session.head(target,
+                                                allow_redirects=False) as r:
+                            status = r.status
+                        if status == 405:
+                            async with session.get(target,
+                                                   allow_redirects=False) as r:
+                                status = r.status
+                    except Exception:
+                        return
+                    if status in (200, 201, 202, 204, 301, 302, 307, 401, 403):
+                        found.append((status, target))
+                        log(f"[+] {status}  {target}", "ok")
+
+            await asyncio.gather(*(probe(p) for p in paths),
+                                 return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try: loop.run_until_complete(runner())
+        finally: loop.close()
+    log(f"[*] Discovered {len(found)} endpoint(s) in {time.time()-t0:.2f}s "
+        "(async)", "cyan")
+    return sorted(found)
+
+
+# ---------------------------------------------------------------------------
+# Async subdomain finder
+# ---------------------------------------------------------------------------
+def find_subdomains_async(domain: str, concurrency: int,
+                          log: Logger) -> list[tuple[str, str]]:
+    """Asyncio DNS resolution of common subdomains."""
+    import asyncio
+    import socket as _socket
+
+    found: list[tuple[str, str]] = []
+    log(f"[*] Async subdomain enum for {domain} ({len(COMMON_SUBDOMAINS)} probes)",
+        "cyan")
+
+    loop = None  # set in runner
+
+    async def probe(sub: str) -> None:
+        if _should_stop():
+            return
+        host = f"{sub}.{domain}"
+        try:
+            ip = await loop.getaddrinfo(host, None,
+                                        family=_socket.AF_INET,
+                                        type=_socket.SOCK_STREAM)
+            ip_str = ip[0][4][0]
+            found.append((sub, ip_str))
+            log(f"[+] {host} -> {ip_str}", "ok")
+        except (_socket.gaierror, OSError):
+            pass
+
+    async def runner() -> None:
+        nonlocal loop
+        loop = asyncio.get_running_loop()
+        sem = asyncio.Semaphore(concurrency)
+
+        async def bounded(sub):
+            async with sem:
+                await probe(sub)
+
+        await asyncio.gather(*(bounded(s) for s in COMMON_SUBDOMAINS),
+                             return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        l = asyncio.new_event_loop()
+        try: l.run_until_complete(runner())
+        finally: l.close()
+    log(f"[*] {len(found)} subdomain(s) in {time.time()-t0:.2f}s (async)",
+        "cyan")
+    return sorted(found)
+
+
+# ---------------------------------------------------------------------------
+# Wayback Machine — list snapshots of a domain
+# ---------------------------------------------------------------------------
+def wayback_urls(domain: str, limit: int, log: Logger) -> list[str]:
+    """Query the Internet Archive CDX API for historical URLs of a domain."""
+    import requests
+    log(f"[*] Querying Wayback CDX for {domain}", "cyan")
+    api = (f"http://web.archive.org/cdx/search/cdx?url={domain}/*"
+           f"&output=json&fl=original&collapse=urlkey&limit={limit}")
+    try:
+        resp = requests.get(api, timeout=30,
+                            headers={"User-Agent": "PENETRATOR/1.0"})
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err"); return []
+    if resp.status_code != 200:
+        log(f"[-] Wayback returned HTTP {resp.status_code}", "err")
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        log("[-] Non-JSON response", "err"); return []
+    # First row is the column header
+    urls = [row[0] for row in data[1:]] if data else []
+    interesting = [u for u in urls
+                   if any(s in u.lower()
+                          for s in (".env", ".bak", ".git", "config", "admin",
+                                    "backup", "secret", "key", "/api/", ".sql",
+                                    ".log", "dump"))]
+    for u in urls[:30]:
+        log(f"  {u}", "info")
+    if len(urls) > 30:
+        log(f"  ... +{len(urls) - 30} more", "muted")
+    if interesting:
+        log(f"[+] {len(interesting)} potentially interesting URL(s):", "ok")
+        for u in interesting[:25]:
+            log(f"    ★ {u}", "accent")
+    log(f"[*] Total: {len(urls)} unique URLs", "cyan")
+    return urls
+
+
+# ---------------------------------------------------------------------------
+# GraphQL field enumeration (when introspection is disabled)
+# ---------------------------------------------------------------------------
+GRAPHQL_FIELD_GUESSES = [
+    "user", "users", "me", "viewer", "currentUser", "profile", "profiles",
+    "account", "accounts", "node", "nodes", "search", "find", "get", "list",
+    "all", "admin", "adminUsers", "session", "sessions", "token", "auth",
+    "login", "register", "products", "items", "orders", "transactions",
+    "posts", "articles", "comments", "messages", "files", "uploads",
+    "settings", "config", "configuration", "internal", "debug", "test",
+    "secrets", "keys", "credentials", "permissions", "roles", "groups",
+]
+
+
+def graphql_field_enum(url: str, log: Logger) -> dict:
+    """When introspection is OFF, brute-force common field names against
+    the queryType and report which ones the server *recognizes*."""
+    import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    log(f"[*] GraphQL field enum on {url} "
+        f"({len(GRAPHQL_FIELD_GUESSES)} guesses)", "cyan")
+
+    found: list[str] = []
+    sess = requests.Session()
+    sess.headers.update({"Content-Type": "application/json",
+                         "User-Agent": "PENETRATOR/1.0"})
+
+    for field in GRAPHQL_FIELD_GUESSES:
+        if _should_stop():
+            break
+        # Empty selection set -> server complains about a *specific* field if
+        # the field doesn't exist, but with a parser/validator error for the
+        # missing subselection if it *does* exist on a non-leaf type.
+        query = {"query": "{ " + field + " }"}
+        try:
+            resp = sess.post(url, json=query, timeout=8)
+        except requests.RequestException:
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            continue
+        errors = data.get("errors") or []
+        text = " ".join(str(e.get("message", "")).lower() for e in errors)
+        # Heuristic: "must have a selection of subfields" / "Field ... is
+        # missing" -> the field exists. "Cannot query field" -> it doesn't.
+        if not errors and data.get("data") is not None:
+            found.append(field)
+            log(f"[+] {field}: returned data", "ok")
+        elif "selection of subfields" in text or "must have a selection" in text:
+            found.append(field)
+            log(f"[+] {field}: exists (object type)", "ok")
+        elif "field" in text and "not found" not in text and "unknown" not in text \
+                and "cannot query" not in text:
+            log(f"  {field}: ambiguous — {text[:80]}", "muted")
+
+    log(f"[*] {len(found)} probable field(s)", "cyan")
+    return {"found": found}
+
+
+# ---------------------------------------------------------------------------
+# HTTP request smuggling detector
+# ---------------------------------------------------------------------------
+def http_smuggling_detect(url: str, log: Logger) -> dict:
+    """Probe for CL.TE / TE.CL desync via a malformed Transfer-Encoding."""
+    import socket as _socket
+    import ssl
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url if url.startswith(("http://", "https://"))
+                      else "http://" + url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    if not host:
+        log("[-] Invalid URL", "err"); return {}
+
+    log(f"[*] HTTP smuggling probe {host}:{port}{path}", "cyan")
+
+    findings: dict = {"host": host, "port": port, "results": []}
+
+    # CL.TE probe — frontend uses Content-Length, backend uses Transfer-Encoding
+    cl_te = (
+        f"POST {path} HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        "Content-Length: 6\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "0\r\n"
+        "\r\n"
+        "G"
+    )
+    # TE.CL probe — frontend uses Transfer-Encoding, backend uses Content-Length
+    te_cl = (
+        f"POST {path} HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        "Content-Length: 4\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5e\r\n"
+        "x" * 94 + "\r\n"
+        "0\r\n"
+        "\r\n"
+    )
+    # TE.TE — obfuscated TE headers
+    te_te = (
+        f"POST {path} HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        "Content-Length: 4\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "Transfer-Encoding: identity\r\n"
+        "\r\n"
+        "5c\r\n"
+        "x" * 92 + "\r\n"
+        "0\r\n"
+        "\r\n"
+    )
+
+    for name, payload in (("CL.TE", cl_te), ("TE.CL", te_cl),
+                          ("TE.TE (dup TE header)", te_te)):
+        if _should_stop():
+            break
+        try:
+            sock = _socket.create_connection((host, port), timeout=10)
+            if parsed.scheme == "https":
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock, server_hostname=host)
+            sock.sendall(payload.encode())
+            sock.settimeout(8)
+            data = b""
+            try:
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                    if len(data) > 16384:
+                        break
+            except (TimeoutError, _socket.timeout):
+                pass
+            sock.close()
+        except OSError as exc:
+            log(f"  {name}: connection error {exc}", "muted")
+            findings["results"].append({"variant": name, "error": str(exc)})
+            continue
+
+        text = data.decode("utf-8", errors="replace")
+        first_line = text.split("\r\n", 1)[0] if text else "(no response)"
+        # Heuristics: 400/408/501 with "ambiguous" / "invalid Transfer-Encoding"
+        # or a hung response indicates the server treated the request oddly.
+        suspicious = (
+            "400" in first_line
+            and any(s in text.lower()
+                    for s in ("transfer-encoding", "ambiguous",
+                              "invalid", "smuggling"))
+        )
+        tag = "warn" if suspicious else "info"
+        log(f"  {name}: {first_line}", tag)
+        findings["results"].append({"variant": name, "first_line": first_line,
+                                    "suspicious": suspicious})
+
+    if not any(r.get("suspicious") for r in findings["results"]):
+        log("[+] No obvious smuggling indicator detected (single-pass probe).",
+            "ok")
+    else:
+        log("[!] Suspicious response patterns — manual review required.",
+            "warn")
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # CORS misconfiguration tester
 # ---------------------------------------------------------------------------
 def cors_test(url: str, log: Logger) -> dict:
