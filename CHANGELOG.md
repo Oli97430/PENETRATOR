@@ -7,6 +7,69 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-05-03
+
+### Added — Features (30 new — Automation, Stealth & Defense)
+
+#### Automation & Orchestration (5)
+- **Attack Chain** — sequentially run recon → scan → exploit steps on a target.
+- **Risk Correlator** — cross-references session findings and assigns severity scores.
+- **Scan Diff** — compares two scan results and highlights changes.
+- **Smart Payload Generator** — WAF-aware payload mutation (Cloudflare, ModSecurity, AWS, generic).
+- **Executive Report** — generates a summary report suitable for non-technical stakeholders.
+
+#### Stealth & Evasion (5)
+- **Proxy Configuration** — route all requests through SOCKS5/HTTP proxy.
+- **User-Agent Rotation** — randomized UA strings per request from a curated pool.
+- **Throttled Requests** — rate-limited scanning with configurable min/max delays.
+- **Proxy Rotation** — round-robin through a proxy list.
+- **WAF Bypass Tester** — encoding tricks (double-URL, hex, unicode) to evade filters.
+
+#### Tool Integrations (5)
+- **Nmap XML Import** — parses Nmap XML output into session memory.
+- **Nuclei Runner** — launches Nuclei with custom templates.
+- **Burp Export Parser** — imports Burp Suite XML exports.
+- **Metasploit RPC** — checks MSF RPC connectivity and module count.
+- **Shodan Lookup** — queries Shodan InternetDB for host intelligence.
+
+#### Email & Phishing Defense (4)
+- **SPF/DKIM/DMARC Checker** — validates email authentication DNS records.
+- **Email Header Analyzer** — extracts hops, SPF/DKIM results, delays.
+- **Homoglyph Detector** — finds lookalike characters in domain names.
+- **Phishing URL Analyzer** — scores URLs for suspicious patterns.
+
+#### Mobile & IoT (4)
+- **APK Analyzer** — extracts permissions, activities, and secrets from Android packages.
+- **MQTT Tester** — anonymous connect + subscribe to wildcard topics.
+- **Firmware Strings Extractor** — pulls interesting strings from binary firmware images.
+- **UPnP Scanner** — discovers SSDP devices on the local network.
+
+#### Blue Team / Defense (4)
+- **Honeypot Detector** — fingerprints honeypot services via timing and banner analysis.
+- **Log Analyzer** — pattern-matches attack signatures in log text.
+- **YARA Scanner** — runs YARA rules against suspect files.
+- **Baseline Snapshot & Compare** — filesystem integrity monitoring.
+
+#### Compliance & Frameworks (3)
+- **OWASP Top 10 Mapper** — maps findings to OWASP categories.
+- **PCI DSS Quick Check** — validates basic PCI requirements on a target.
+- **CIS Benchmark** — runs platform-specific hardening checks (Windows/Linux).
+
+### Added — Architecture
+- 7 new GUI categories: **Automation**, **Stealth & Evasion**, **Integrations**,
+  **Email & Phishing Defense**, **Mobile & IoT**, **Blue Team**, **Compliance**.
+- 7 new CLI sub-menus in `penetrator_cli.py`.
+- `gui/engine.py` grew from ~4030 → ~5660 lines (all pure-logic, testable).
+- 99 new i18n keys × 5 languages = 495 new translations.
+- Sidebar now shows **22 tool categories** (was 15).
+- CLI main menu expanded to **25 entries** (was 18).
+
+### Changed
+- Version bumped to **1.6.0**.
+- README.md fully rewritten: 102 tools, 22 categories, updated badges and feature list.
+- `gui/theme.py` — 7 new category accent colours.
+- Total i18n coverage: **447 keys × 5 languages = 2235 entries**, 0 missing.
+
 ## [1.5.0] — 2026-05-03
 
 ### Added — Tools (30 new — Advanced Penetration Testing)

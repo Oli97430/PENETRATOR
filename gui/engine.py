@@ -4027,3 +4027,1634 @@ def lfi_scan(url: str, param: str, log: Logger) -> list[dict]:
 
     log(f"[*] {len(findings)} LFI indicator(s)", "warn" if findings else "ok")
     return findings
+
+
+# ===========================================================================
+# PHASE 10 — Automation, Stealth, Integrations, Defense, Compliance
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# 1. Attack Chain Runner
+# ---------------------------------------------------------------------------
+def attack_chain(target: str, chain: list[str], log: Logger) -> dict:
+    """Run a sequence of tools automatically on a target.
+    chain items: 'port_scan', 'banner', 'tls', 'headers', 'buster', 'waf', 'cors'
+    """
+    log(f"[*] Attack chain on {target}: {' → '.join(chain)}", "cyan")
+    results: dict = {"target": target, "chain": chain, "outputs": {}}
+    session_set("last_target", target)
+
+    for step in chain:
+        if _should_stop():
+            log("[!] Chain aborted by user", "warn")
+            break
+        log(f"\n{'='*60}", "muted")
+        log(f"[CHAIN] Step: {step}", "cyan")
+        log(f"{'='*60}", "muted")
+
+        try:
+            if step == "port_scan":
+                results["outputs"]["port_scan"] = scan_ports(target, 1, 1024, 200, 0.5, log)
+            elif step == "banner":
+                results["outputs"]["banner"] = scan_with_banners(target, 1, 1024, 100, 0.6, log)
+            elif step == "tls":
+                results["outputs"]["tls"] = tls_scan(target, 443, log)
+            elif step == "headers":
+                url = f"http://{target}"
+                results["outputs"]["headers"] = check_security_headers(url, log)
+            elif step == "buster":
+                url = f"http://{target}"
+                results["outputs"]["buster"] = buster(url, DEFAULT_WEB_PATHS, 50, log)
+            elif step == "waf":
+                url = f"http://{target}"
+                results["outputs"]["waf"] = waf_detect(url, log)
+            elif step == "cors":
+                url = f"http://{target}"
+                results["outputs"]["cors"] = cors_test(url, log)
+            elif step == "subdomain":
+                results["outputs"]["subdomain"] = find_subdomains(target, 50, log)
+            elif step == "takeover":
+                results["outputs"]["takeover"] = check_subdomain_takeover(target, log)
+            elif step == "git_exposure":
+                url = f"http://{target}"
+                results["outputs"]["git"] = git_exposure_check(url, log)
+            elif step == "swagger":
+                url = f"http://{target}"
+                results["outputs"]["swagger"] = swagger_discovery(url, log)
+            else:
+                log(f"  Unknown step: {step}", "warn")
+        except Exception as exc:
+            log(f"  [-] Step {step} failed: {exc}", "err")
+            results["outputs"][step] = {"error": str(exc)}
+
+    log(f"\n[*] Chain complete: {len(results['outputs'])} step(s) executed", "cyan")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 2. Auto-Correlator (Risk Scorer)
+# ---------------------------------------------------------------------------
+def auto_correlate(log: Logger) -> dict:
+    """Analyze all session data and produce a risk score."""
+    log("[*] Auto-correlating session findings...", "cyan")
+    score = 0
+    findings: list[str] = []
+
+    # Check open ports
+    open_ports = session_get("last_open_ports", [])
+    if open_ports:
+        high_risk_ports = [p for p in open_ports if p in (21, 23, 445, 3389, 6379, 27017)]
+        if high_risk_ports:
+            score += 30
+            findings.append(f"High-risk ports open: {high_risk_ports}")
+        if len(open_ports) > 20:
+            score += 10
+            findings.append(f"Large attack surface: {len(open_ports)} open ports")
+
+    # Check subdomains
+    subs = session_get("last_subdomains", [])
+    if len(subs) > 50:
+        score += 10
+        findings.append(f"Large subdomain footprint: {len(subs)}")
+
+    # Check buster results
+    paths = session_get("last_buster_paths", [])
+    sensitive = [p for p in paths if any(s in str(p).lower()
+                 for s in (".git", ".env", "admin", "backup", "config"))]
+    if sensitive:
+        score += 25
+        findings.append(f"Sensitive paths exposed: {sensitive[:5]}")
+
+    # Check last target
+    target = session_get("last_target")
+    if target:
+        log(f"  Target: {target}", "info")
+
+    # Grade
+    if score >= 70:
+        grade = "CRITICAL"
+    elif score >= 50:
+        grade = "HIGH"
+    elif score >= 30:
+        grade = "MEDIUM"
+    elif score >= 10:
+        grade = "LOW"
+    else:
+        grade = "INFO"
+
+    log(f"\n  {'─'*40}", "muted")
+    log(f"  Risk Score: {score}/100", "err" if score >= 50 else "warn" if score >= 30 else "ok")
+    log(f"  Grade: {grade}", "err" if score >= 50 else "warn" if score >= 30 else "ok")
+    for f in findings:
+        log(f"  • {f}", "info")
+    if not findings:
+        log("  No significant findings in session memory", "ok")
+
+    return {"score": score, "grade": grade, "findings": findings}
+
+
+# ---------------------------------------------------------------------------
+# 3. Scheduled Scan Diff
+# ---------------------------------------------------------------------------
+def scan_diff(current: dict, previous: dict, log: Logger) -> dict:
+    """Compare two scan snapshots and highlight changes."""
+    log("[*] Comparing scan results...", "cyan")
+    diff: dict = {"new": [], "removed": [], "changed": []}
+
+    curr_ports = set(current.get("ports", []))
+    prev_ports = set(previous.get("ports", []))
+
+    new_ports = curr_ports - prev_ports
+    removed_ports = prev_ports - curr_ports
+
+    if new_ports:
+        diff["new"] = list(new_ports)
+        log(f"[+] NEW ports: {sorted(new_ports)}", "err")
+    if removed_ports:
+        diff["removed"] = list(removed_ports)
+        log(f"[-] CLOSED ports: {sorted(removed_ports)}", "ok")
+    if not new_ports and not removed_ports:
+        log("[=] No port changes detected", "info")
+
+    # Compare subdomains
+    curr_subs = set(current.get("subdomains", []))
+    prev_subs = set(previous.get("subdomains", []))
+    new_subs = curr_subs - prev_subs
+    if new_subs:
+        log(f"[+] NEW subdomains: {sorted(new_subs)[:10]}", "warn")
+        diff["new_subdomains"] = list(new_subs)
+
+    return diff
+
+
+# ---------------------------------------------------------------------------
+# 4. Smart Payload Generator (WAF-aware)
+# ---------------------------------------------------------------------------
+WAF_BYPASS_ENCODINGS = {
+    "cloudflare": [
+        lambda p: p.replace("<", "%EF%BC%9C").replace(">", "%EF%BC%9E"),
+        lambda p: p.replace("'", "%EF%BC%87"),
+        lambda p: "/**/".join(p.split(" ")),
+    ],
+    "modsecurity": [
+        lambda p: p.replace(" ", "/**/"),
+        lambda p: p.replace("SELECT", "SeLeCt").replace("UNION", "UnIoN"),
+        lambda p: urllib.parse.quote(urllib.parse.quote(p)),
+    ],
+    "aws": [
+        lambda p: p.replace("<script>", "<scr\x00ipt>"),
+        lambda p: urllib.parse.quote(p, safe=""),
+    ],
+    "generic": [
+        lambda p: urllib.parse.quote(p, safe=""),
+        lambda p: urllib.parse.quote(urllib.parse.quote(p, safe=""), safe=""),
+        lambda p: base64.b64encode(p.encode()).decode(),
+        lambda p: "".join(f"&#x{ord(c):x};" for c in p),
+    ],
+}
+
+
+def smart_payload_gen(payload: str, waf_type: str, log: Logger) -> list[str]:
+    """Generate WAF-bypass variants of a payload based on detected WAF type."""
+    waf_key = waf_type.lower()
+    log(f"[*] Generating bypass payloads for WAF: {waf_type}", "cyan")
+    log(f"  Original: {payload}", "info")
+
+    encoders = WAF_BYPASS_ENCODINGS.get(waf_key, WAF_BYPASS_ENCODINGS["generic"])
+    variants: list[str] = [payload]
+
+    for encoder in encoders:
+        try:
+            variant = encoder(payload)
+            if variant != payload and variant not in variants:
+                variants.append(variant)
+                log(f"  → {variant[:100]}", "ok")
+        except Exception:
+            pass
+
+    # Always add generic encodings too
+    if waf_key != "generic":
+        for encoder in WAF_BYPASS_ENCODINGS["generic"]:
+            try:
+                variant = encoder(payload)
+                if variant not in variants:
+                    variants.append(variant)
+                    log(f"  → {variant[:100]}", "info")
+            except Exception:
+                pass
+
+    log(f"[*] {len(variants)} variant(s) generated", "cyan")
+    return variants
+
+
+# ---------------------------------------------------------------------------
+# 5. Executive Report Generator
+# ---------------------------------------------------------------------------
+def executive_report(target: str, log: Logger) -> str:
+    """Generate an executive summary from session memory."""
+    log(f"[*] Generating executive report for: {target}", "cyan")
+
+    open_ports = session_get("last_open_ports", [])
+    subs = session_get("last_subdomains", [])
+    paths = session_get("last_buster_paths", [])
+
+    # Build report text
+    lines: list[str] = []
+    lines.append(f"# Penetration Test Report — {target}")
+    lines.append(f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("")
+    lines.append("## Executive Summary")
+    lines.append(f"Target: {target}")
+    lines.append(f"Open ports: {len(open_ports)}")
+    lines.append(f"Subdomains discovered: {len(subs)}")
+    lines.append(f"Sensitive paths found: {len(paths)}")
+    lines.append("")
+
+    # Risk assessment
+    risk_score = 0
+    if any(p in open_ports for p in (21, 23, 445, 3389)):
+        risk_score += 30
+    if paths:
+        risk_score += 20
+    if len(open_ports) > 15:
+        risk_score += 15
+
+    grade = "CRITICAL" if risk_score >= 60 else "HIGH" if risk_score >= 40 else "MEDIUM" if risk_score >= 20 else "LOW"
+    lines.append(f"## Risk Assessment")
+    lines.append(f"Score: {risk_score}/100 ({grade})")
+    lines.append("")
+
+    if open_ports:
+        lines.append("## Open Ports")
+        for p in sorted(open_ports)[:30]:
+            svc = COMMON_SERVICES.get(p, "unknown")
+            lines.append(f"- {p}/{svc}")
+        lines.append("")
+
+    if subs:
+        lines.append("## Subdomains")
+        for s in sorted(subs)[:20]:
+            lines.append(f"- {s}")
+        lines.append("")
+
+    lines.append("## Recommendations")
+    if any(p in open_ports for p in (21, 23)):
+        lines.append("- CRITICAL: Close FTP/Telnet ports — use SFTP/SSH instead")
+    if 3389 in open_ports:
+        lines.append("- HIGH: RDP exposed — restrict with VPN/firewall rules")
+    if paths:
+        lines.append("- HIGH: Remove sensitive files from web root (.git, .env, backups)")
+    lines.append("- Implement rate limiting on all public endpoints")
+    lines.append("- Enable security headers (HSTS, CSP, X-Frame-Options)")
+    lines.append("")
+    lines.append("---")
+    lines.append("Generated by PENETRATOR v1.5.0")
+
+    report = "\n".join(lines)
+    for line in lines:
+        log(line, "info")
+    return report
+
+
+# ---------------------------------------------------------------------------
+# 6. Proxy Configuration
+# ---------------------------------------------------------------------------
+_proxy_config: dict[str, str] = {}
+
+
+def set_proxy(proxy_url: str, log: Logger) -> dict:
+    """Configure a global proxy for all requests."""
+    global _proxy_config
+    if not proxy_url:
+        _proxy_config = {}
+        log("[+] Proxy disabled", "ok")
+        return {}
+    _proxy_config = {"http": proxy_url, "https": proxy_url}
+    log(f"[+] Proxy set: {proxy_url}", "ok")
+    # Test connectivity
+    import requests
+    try:
+        resp = requests.get("https://httpbin.org/ip", proxies=_proxy_config, timeout=10)
+        data = resp.json()
+        log(f"  External IP via proxy: {data.get('origin', '?')}", "info")
+    except requests.RequestException as exc:
+        log(f"[!] Proxy test failed: {exc}", "warn")
+    return _proxy_config
+
+
+def get_proxy() -> dict:
+    return _proxy_config
+
+
+# ---------------------------------------------------------------------------
+# 7. User-Agent Rotation
+# ---------------------------------------------------------------------------
+UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/125.0.0.0",
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+    "curl/8.7.1",
+    "python-requests/2.32.0",
+    "Wget/1.21.4",
+    "PostmanRuntime/7.38.0",
+    "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+    "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15",
+]
+
+
+def random_ua() -> str:
+    """Return a random User-Agent from the pool."""
+    return secrets.choice(UA_POOL)
+
+
+def ua_rotation_demo(url: str, count: int, log: Logger) -> list[dict]:
+    """Send requests with rotating User-Agents to demonstrate stealth."""
+    import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    count = max(1, min(50, count))
+    log(f"[*] UA rotation: {count} requests to {url}", "cyan")
+    results: list[dict] = []
+
+    for i in range(count):
+        if _should_stop():
+            break
+        ua = random_ua()
+        try:
+            resp = requests.get(url, timeout=10, headers={"User-Agent": ua},
+                                proxies=get_proxy())
+            log(f"  [{resp.status_code}] UA: {ua[:50]}...", "info")
+            results.append({"ua": ua, "status": resp.status_code})
+        except requests.RequestException as exc:
+            log(f"  [-] {exc}", "muted")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 8. Request Throttling
+# ---------------------------------------------------------------------------
+def throttled_requests(url: str, count: int, min_delay: float,
+                       max_delay: float, log: Logger) -> list[dict]:
+    """Send requests with random delay between them (anti-ban)."""
+    import requests
+    import random
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    count = max(1, min(200, count))
+    min_delay = max(0.1, min_delay)
+    max_delay = max(min_delay, max_delay)
+    log(f"[*] Throttled scan: {count} requests, delay {min_delay}-{max_delay}s", "cyan")
+    results: list[dict] = []
+
+    for i in range(count):
+        if _should_stop():
+            break
+        ua = random_ua()
+        try:
+            resp = requests.get(url, timeout=10, headers={"User-Agent": ua},
+                                proxies=get_proxy())
+            results.append({"idx": i, "status": resp.status_code, "ua": ua})
+            log(f"  [{i+1}/{count}] HTTP {resp.status_code}", "info")
+        except requests.RequestException as exc:
+            log(f"  [{i+1}/{count}] Error: {exc}", "muted")
+        delay = random.uniform(min_delay, max_delay)
+        time.sleep(delay)
+
+    log(f"[*] {len(results)} requests completed", "cyan")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 9. IP Rotation via Proxy List
+# ---------------------------------------------------------------------------
+def proxy_rotation_test(url: str, proxy_list: list[str], log: Logger) -> list[dict]:
+    """Test a URL through multiple proxies to verify IP rotation."""
+    import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    log(f"[*] Proxy rotation test: {len(proxy_list)} proxies", "cyan")
+    results: list[dict] = []
+
+    for proxy in proxy_list:
+        if _should_stop():
+            break
+        proxies = {"http": proxy, "https": proxy}
+        try:
+            resp = requests.get(url, proxies=proxies, timeout=15,
+                                headers={"User-Agent": random_ua()})
+            log(f"[+] {proxy} → HTTP {resp.status_code} ({len(resp.content)} bytes)", "ok")
+            results.append({"proxy": proxy, "status": resp.status_code, "working": True})
+        except requests.RequestException as exc:
+            log(f"[-] {proxy} → FAILED ({exc})", "muted")
+            results.append({"proxy": proxy, "status": 0, "working": False})
+
+    working = sum(1 for r in results if r["working"])
+    log(f"[*] {working}/{len(results)} proxies working", "cyan")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 10. WAF Bypass Payload Tester
+# ---------------------------------------------------------------------------
+def waf_bypass_test(url: str, payload: str, waf_type: str, log: Logger) -> list[dict]:
+    """Generate WAF-bypass variants and test them against the target."""
+    import requests
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    variants = smart_payload_gen(payload, waf_type, log)
+    log(f"\n[*] Testing {len(variants)} bypass variants against {url}", "cyan")
+
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query))
+    target_param = next(iter(params), "q")
+    results: list[dict] = []
+
+    for variant in variants:
+        if _should_stop():
+            break
+        mut = dict(params)
+        mut[target_param] = variant
+        test_url = urlunparse(parsed._replace(query=urlencode(mut, safe="")))
+        try:
+            resp = requests.get(test_url, timeout=10,
+                                headers={"User-Agent": random_ua()},
+                                proxies=get_proxy())
+            blocked = resp.status_code in (403, 406, 429, 503)
+            tag = "err" if not blocked else "muted"
+            log(f"  HTTP {resp.status_code} {'BLOCKED' if blocked else 'PASSED!'} ← {variant[:60]}", tag)
+            results.append({"variant": variant, "status": resp.status_code,
+                            "blocked": blocked})
+        except requests.RequestException:
+            pass
+
+    passed = sum(1 for r in results if not r["blocked"])
+    log(f"[*] {passed}/{len(results)} variants bypassed the WAF", "warn" if passed else "ok")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 11. Nmap XML Import
+# ---------------------------------------------------------------------------
+def nmap_import(xml_path: str, log: Logger) -> dict:
+    """Parse an Nmap XML output file and load results into session."""
+    import xml.etree.ElementTree as ET
+    log(f"[*] Importing Nmap XML: {xml_path}", "cyan")
+    results: dict = {"hosts": [], "total_ports": 0}
+
+    try:
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+    except Exception as exc:
+        log(f"[-] Parse error: {exc}", "err")
+        return results
+
+    all_ports: list[int] = []
+    for host in root.findall(".//host"):
+        addr_el = host.find("address")
+        addr = addr_el.get("addr", "") if addr_el is not None else ""
+        host_data: dict = {"address": addr, "ports": []}
+
+        for port in host.findall(".//port"):
+            state = port.find("state")
+            if state is not None and state.get("state") == "open":
+                portid = int(port.get("portid", 0))
+                protocol = port.get("protocol", "tcp")
+                service_el = port.find("service")
+                service = service_el.get("name", "") if service_el is not None else ""
+                host_data["ports"].append({"port": portid, "proto": protocol,
+                                           "service": service})
+                all_ports.append(portid)
+                log(f"  {addr}:{portid}/{protocol} ({service})", "info")
+
+        if host_data["ports"]:
+            results["hosts"].append(host_data)
+
+    # Store in session
+    session_set("last_open_ports", sorted(set(all_ports)))
+    if results["hosts"]:
+        session_set("last_target", results["hosts"][0]["address"])
+    results["total_ports"] = len(all_ports)
+    log(f"[+] Imported {len(results['hosts'])} host(s), {len(all_ports)} open port(s)", "ok")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 12. Nuclei Template Runner
+# ---------------------------------------------------------------------------
+def nuclei_run(target: str, templates: str, log: Logger) -> list[dict]:
+    """Run nuclei templates against a target (requires nuclei installed)."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("nuclei"):
+        log("[-] nuclei not installed. Download from https://github.com/projectdiscovery/nuclei", "err")
+        return []
+
+    cmd = ["nuclei", "-u", target, "-silent", "-jsonl"]
+    if templates:
+        cmd.extend(["-t", templates])
+    log(f"[*] Running: {' '.join(cmd)}", "cyan")
+
+    findings: list[dict] = []
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", errors="ignore")
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if _should_stop():
+                proc.terminate()
+                break
+            line = line.strip()
+            if line:
+                try:
+                    import json
+                    finding = json.loads(line)
+                    severity = finding.get("info", {}).get("severity", "info")
+                    name = finding.get("info", {}).get("name", "?")
+                    matched = finding.get("matched-at", "")
+                    tag = "err" if severity in ("critical", "high") else "warn" if severity == "medium" else "info"
+                    log(f"[{severity.upper()}] {name} → {matched}", tag)
+                    findings.append(finding)
+                except (ValueError, TypeError):
+                    log(f"  {line}", "info")
+        proc.wait()
+    except OSError as exc:
+        log(f"[-] {exc}", "err")
+
+    log(f"[*] {len(findings)} finding(s) from nuclei", "cyan")
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 13. Burp Suite XML Export
+# ---------------------------------------------------------------------------
+def burp_export(findings: list[dict], output_path: str, log: Logger) -> str:
+    """Export findings in Burp Suite-compatible XML format."""
+    log(f"[*] Exporting {len(findings)} findings to Burp XML: {output_path}", "cyan")
+    import xml.etree.ElementTree as ET
+
+    root = ET.Element("issues")
+    root.set("burpVersion", "2024.0")
+    root.set("exportTime", time.strftime("%Y-%m-%dT%H:%M:%S"))
+
+    for finding in findings:
+        issue = ET.SubElement(root, "issue")
+        ET.SubElement(issue, "serialNumber").text = str(hash(str(finding)) % 10**8)
+        ET.SubElement(issue, "type").text = str(finding.get("type", "0"))
+        ET.SubElement(issue, "name").text = finding.get("name", "Finding")
+        ET.SubElement(issue, "host").text = finding.get("host", "")
+        ET.SubElement(issue, "path").text = finding.get("path", "/")
+        ET.SubElement(issue, "severity").text = finding.get("severity", "Information")
+        ET.SubElement(issue, "confidence").text = finding.get("confidence", "Tentative")
+        ET.SubElement(issue, "issueDetail").text = finding.get("detail", "")
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+    log(f"[+] Exported to {output_path}", "ok")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# 14. Metasploit RPC Interface
+# ---------------------------------------------------------------------------
+def msf_rpc_check(host: str, port: int, token: str, log: Logger) -> dict:
+    """Check Metasploit RPC connectivity and list available modules."""
+    import requests
+    port = port or 55553
+    url = f"https://{host}:{port}/api/"
+    log(f"[*] Metasploit RPC check: {url}", "cyan")
+
+    try:
+        # Auth check
+        resp = requests.post(url, json={"method": "auth.token_list", "token": token},
+                             timeout=10, verify=False)
+        if resp.status_code == 200:
+            data = resp.json()
+            if "error" not in data:
+                log("[+] Connected to Metasploit RPC!", "ok")
+
+                # List exploit count
+                resp2 = requests.post(url, json={"method": "module.exploits", "token": token},
+                                      timeout=10, verify=False)
+                if resp2.status_code == 200:
+                    modules = resp2.json().get("modules", [])
+                    log(f"  Available exploits: {len(modules)}", "info")
+                    return {"connected": True, "exploits": len(modules)}
+            else:
+                log(f"[-] Auth failed: {data.get('error_message', '')}", "err")
+        else:
+            log(f"[-] HTTP {resp.status_code}", "err")
+    except requests.RequestException as exc:
+        log(f"[-] Connection failed: {exc}", "err")
+    return {"connected": False}
+
+
+# ---------------------------------------------------------------------------
+# 15. Shodan API Integration
+# ---------------------------------------------------------------------------
+def shodan_lookup(target: str, api_key: str, log: Logger) -> dict:
+    """Query Shodan API for detailed host information."""
+    import requests
+    log(f"[*] Shodan lookup: {target}", "cyan")
+
+    if not api_key:
+        # Fall back to free InternetDB
+        log("  No API key — using free InternetDB", "info")
+        try:
+            resp = requests.get(f"https://internetdb.shodan.io/{target}", timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                ports = data.get("ports", [])
+                vulns = data.get("vulns", [])
+                log(f"  Ports: {ports}", "info")
+                if vulns:
+                    log(f"  [!] Vulns: {vulns}", "err")
+                return data
+        except requests.RequestException as exc:
+            log(f"[-] {exc}", "err")
+        return {}
+
+    # Full Shodan API
+    try:
+        resp = requests.get(f"https://api.shodan.io/shodan/host/{target}",
+                            params={"key": api_key}, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            log(f"  Organization: {data.get('org', '?')}", "info")
+            log(f"  OS: {data.get('os', '?')}", "info")
+            log(f"  Ports: {data.get('ports', [])}", "info")
+            vulns = data.get("vulns", [])
+            if vulns:
+                log(f"  [!] {len(vulns)} known vulnerability(ies)", "err")
+                for v in vulns[:10]:
+                    log(f"    • {v}", "err")
+            return data
+        else:
+            log(f"[-] Shodan API error: HTTP {resp.status_code}", "err")
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err")
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# 16. SPF/DKIM/DMARC Checker
+# ---------------------------------------------------------------------------
+def email_security_check(domain: str, log: Logger) -> dict:
+    """Check SPF, DKIM, and DMARC records for a domain."""
+    import socket as _socket
+    log(f"[*] Email security check: {domain}", "cyan")
+    results: dict = {"domain": domain, "spf": None, "dkim": None, "dmarc": None}
+
+    try:
+        import dns.resolver
+        HAS_DNS = True
+    except ImportError:
+        HAS_DNS = False
+        log("[!] dnspython not installed — using basic checks", "warn")
+
+    # SPF
+    try:
+        if HAS_DNS:
+            answers = dns.resolver.resolve(domain, "TXT")
+            for rdata in answers:
+                txt = str(rdata).strip('"')
+                if "v=spf1" in txt:
+                    results["spf"] = txt
+                    has_all_fail = "-all" in txt
+                    tag = "ok" if has_all_fail else "warn"
+                    log(f"  SPF: {txt[:100]}", tag)
+                    if not has_all_fail:
+                        log("  [!] SPF does not end with -all (permissive)", "warn")
+                    break
+            if not results["spf"]:
+                log("  [!] No SPF record found!", "err")
+        else:
+            import subprocess
+            result = subprocess.run(["nslookup", "-type=TXT", domain],
+                                    capture_output=True, text=True, timeout=10)
+            if "v=spf1" in result.stdout:
+                log("  SPF: found (install dnspython for details)", "ok")
+                results["spf"] = "present"
+    except Exception as exc:
+        log(f"  SPF check failed: {exc}", "muted")
+
+    # DMARC
+    try:
+        dmarc_domain = f"_dmarc.{domain}"
+        if HAS_DNS:
+            answers = dns.resolver.resolve(dmarc_domain, "TXT")
+            for rdata in answers:
+                txt = str(rdata).strip('"')
+                if "v=DMARC1" in txt:
+                    results["dmarc"] = txt
+                    policy = "reject" if "p=reject" in txt else "quarantine" if "p=quarantine" in txt else "none"
+                    tag = "ok" if policy == "reject" else "warn" if policy == "quarantine" else "err"
+                    log(f"  DMARC: {txt[:100]}", tag)
+                    log(f"    Policy: {policy}", tag)
+                    break
+            if not results["dmarc"]:
+                log("  [!] No DMARC record found!", "err")
+    except Exception:
+        log("  [!] No DMARC record found!", "err")
+
+    # DKIM (common selectors)
+    dkim_selectors = ["default", "google", "selector1", "selector2", "k1", "mail", "dkim"]
+    for sel in dkim_selectors:
+        if _should_stop():
+            break
+        try:
+            dkim_domain = f"{sel}._domainkey.{domain}"
+            if HAS_DNS:
+                answers = dns.resolver.resolve(dkim_domain, "TXT")
+                for rdata in answers:
+                    txt = str(rdata).strip('"')
+                    if "v=DKIM1" in txt or "p=" in txt:
+                        results["dkim"] = {"selector": sel, "record": txt[:200]}
+                        log(f"  DKIM: found (selector={sel})", "ok")
+                        break
+                if results["dkim"]:
+                    break
+        except Exception:
+            continue
+
+    if not results["dkim"]:
+        log("  [!] No DKIM record found (checked common selectors)", "warn")
+
+    # Score
+    score = sum(1 for v in (results["spf"], results["dkim"], results["dmarc"]) if v)
+    log(f"\n  Email security score: {score}/3", "ok" if score == 3 else "warn" if score >= 2 else "err")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 17. Email Header Analyzer
+# ---------------------------------------------------------------------------
+def email_header_analyze(headers_text: str, log: Logger) -> dict:
+    """Parse email headers and trace the message path."""
+    log("[*] Email header analysis", "cyan")
+    results: dict = {"hops": [], "authentication": {}, "flags": []}
+
+    lines = headers_text.splitlines()
+    received_hops: list[str] = []
+    current_header = ""
+
+    for line in lines:
+        if line.startswith(" ") or line.startswith("\t"):
+            current_header += " " + line.strip()
+        else:
+            if current_header.lower().startswith("received:"):
+                received_hops.append(current_header)
+            current_header = line.strip()
+    if current_header.lower().startswith("received:"):
+        received_hops.append(current_header)
+
+    log(f"  Message hops: {len(received_hops)}", "info")
+    for i, hop in enumerate(reversed(received_hops)):
+        log(f"  Hop {i+1}: {hop[:120]}", "info")
+        results["hops"].append(hop)
+
+    # Check authentication results
+    for line in lines:
+        lower = line.lower()
+        if "authentication-results:" in lower:
+            if "spf=pass" in lower:
+                results["authentication"]["spf"] = "pass"
+                log("  SPF: PASS", "ok")
+            elif "spf=fail" in lower:
+                results["authentication"]["spf"] = "fail"
+                log("  SPF: FAIL", "err")
+            if "dkim=pass" in lower:
+                results["authentication"]["dkim"] = "pass"
+                log("  DKIM: PASS", "ok")
+            elif "dkim=fail" in lower:
+                results["authentication"]["dkim"] = "fail"
+                log("  DKIM: FAIL", "err")
+            if "dmarc=pass" in lower:
+                results["authentication"]["dmarc"] = "pass"
+                log("  DMARC: PASS", "ok")
+            elif "dmarc=fail" in lower:
+                results["authentication"]["dmarc"] = "fail"
+                log("  DMARC: FAIL", "err")
+
+    # Suspicious indicators
+    if len(received_hops) > 8:
+        results["flags"].append("Unusually many hops (possible relay)")
+        log("  [!] Unusually many hops", "warn")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 18. Homoglyph Domain Detector
+# ---------------------------------------------------------------------------
+HOMOGLYPHS = {
+    'a': ['а', 'ɑ', 'α'], 'c': ['с', 'ϲ'], 'd': ['ԁ'],
+    'e': ['е', 'ё'], 'g': ['ɡ'], 'h': ['һ'],
+    'i': ['і', 'ı', 'l', '1'], 'l': ['І', '1', 'i'],
+    'o': ['о', '0', 'ο'], 'p': ['р'], 'q': ['ԛ'],
+    's': ['ѕ'], 'w': ['ԝ'], 'x': ['х'], 'y': ['у'],
+}
+
+
+def homoglyph_detect(domain: str, log: Logger) -> list[str]:
+    """Generate and check homoglyph (typosquat) variants of a domain."""
+    import socket as _socket
+    log(f"[*] Homoglyph detection for: {domain}", "cyan")
+
+    base = domain.split(".")[0]
+    tld = ".".join(domain.split(".")[1:]) or "com"
+    variants: list[str] = []
+
+    # Generate single-char substitutions
+    for i, char in enumerate(base):
+        if char.lower() in HOMOGLYPHS:
+            for replacement in HOMOGLYPHS[char.lower()]:
+                variant = base[:i] + replacement + base[i+1:]
+                full = f"{variant}.{tld}"
+                if full != domain:
+                    variants.append(full)
+
+    # Also check common typos
+    for i in range(len(base) - 1):
+        swapped = base[:i] + base[i+1] + base[i] + base[i+2:]
+        full = f"{swapped}.{tld}"
+        if full != domain:
+            variants.append(full)
+
+    log(f"  Generated {len(variants)} variants", "info")
+    registered: list[str] = []
+
+    for variant in variants[:50]:
+        if _should_stop():
+            break
+        try:
+            _socket.gethostbyname(variant)
+            registered.append(variant)
+            log(f"[!] {variant} — REGISTERED (potential typosquat!)", "err")
+        except _socket.gaierror:
+            pass
+
+    if not registered:
+        log("[+] No registered homoglyph domains found", "ok")
+    else:
+        log(f"[!] {len(registered)} typosquat domain(s) detected!", "warn")
+    return registered
+
+
+# ---------------------------------------------------------------------------
+# 19. Phishing URL Analyzer
+# ---------------------------------------------------------------------------
+def phishing_url_analyze(url: str, log: Logger) -> dict:
+    """Score a URL for phishing indicators."""
+    from urllib.parse import urlparse
+    log(f"[*] Phishing URL analysis: {url}", "cyan")
+    parsed = urlparse(url if "://" in url else "http://" + url)
+    score = 0
+    indicators: list[str] = []
+
+    hostname = parsed.hostname or ""
+    path = parsed.path or ""
+
+    # Check indicators
+    if len(url) > 75:
+        score += 15
+        indicators.append(f"Long URL ({len(url)} chars)")
+    if hostname.count(".") > 3:
+        score += 15
+        indicators.append(f"Many subdomains ({hostname.count('.') + 1} levels)")
+    if "@" in url:
+        score += 30
+        indicators.append("Contains @ (credential obfuscation)")
+    if re.search(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", hostname):
+        score += 25
+        indicators.append("IP address instead of domain")
+    if any(s in hostname for s in ("login", "verify", "secure", "account", "update", "confirm")):
+        score += 20
+        indicators.append("Suspicious keywords in hostname")
+    if "-" in hostname and hostname.count("-") > 2:
+        score += 10
+        indicators.append("Multiple hyphens in domain")
+    if len(hostname) > 30:
+        score += 10
+        indicators.append("Unusually long hostname")
+    if parsed.port and parsed.port not in (80, 443):
+        score += 15
+        indicators.append(f"Non-standard port: {parsed.port}")
+    if "%" in url and url.count("%") > 3:
+        score += 15
+        indicators.append("Heavy URL encoding")
+    # Check for data: or javascript:
+    if parsed.scheme in ("data", "javascript"):
+        score += 40
+        indicators.append(f"Dangerous scheme: {parsed.scheme}")
+
+    score = min(100, score)
+    grade = "PHISHING" if score >= 70 else "SUSPICIOUS" if score >= 40 else "LOW RISK" if score >= 20 else "SAFE"
+
+    log(f"  Score: {score}/100 ({grade})", "err" if score >= 70 else "warn" if score >= 40 else "ok")
+    for ind in indicators:
+        log(f"  • {ind}", "info")
+    if not indicators:
+        log("  No phishing indicators found", "ok")
+
+    return {"url": url, "score": score, "grade": grade, "indicators": indicators}
+
+
+# ---------------------------------------------------------------------------
+# 20. APK Analyzer
+# ---------------------------------------------------------------------------
+def apk_analyze(apk_path: str, log: Logger) -> dict:
+    """Extract metadata from an Android APK file."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    log(f"[*] APK analysis: {apk_path}", "cyan")
+    results: dict = {"permissions": [], "activities": [], "services": [],
+                     "receivers": [], "meta": {}}
+
+    if not Path(apk_path).is_file():
+        log("[-] File not found", "err")
+        return results
+
+    try:
+        with zipfile.ZipFile(apk_path, "r") as zf:
+            names = zf.namelist()
+            results["meta"]["files_count"] = len(names)
+            results["meta"]["total_size"] = sum(i.file_size for i in zf.infolist())
+            log(f"  Files: {len(names)}, Total size: {results['meta']['total_size']:,} bytes", "info")
+
+            # Look for interesting files
+            interesting = [n for n in names if any(
+                p in n.lower() for p in (".json", ".xml", ".properties", "secret",
+                                         "config", "api", "key", ".db", ".sqlite")
+            )]
+            if interesting:
+                log(f"  Interesting files:", "warn")
+                for f in interesting[:20]:
+                    log(f"    {f}", "info")
+                results["meta"]["interesting_files"] = interesting
+
+            # Try to read AndroidManifest (it's in binary XML format in APK)
+            if "AndroidManifest.xml" in names:
+                log("  AndroidManifest.xml found", "info")
+                # Binary XML needs special parsing, just report presence
+                results["meta"]["has_manifest"] = True
+
+            # Check for native libs
+            libs = [n for n in names if n.startswith("lib/")]
+            if libs:
+                archs = set(n.split("/")[1] for n in libs if "/" in n[4:])
+                log(f"  Native libraries: {', '.join(archs)}", "info")
+                results["meta"]["native_archs"] = list(archs)
+
+            # Check for DEX files
+            dex_files = [n for n in names if n.endswith(".dex")]
+            log(f"  DEX files: {len(dex_files)}", "info")
+            results["meta"]["dex_count"] = len(dex_files)
+
+    except zipfile.BadZipFile:
+        log("[-] Not a valid ZIP/APK file", "err")
+    except Exception as exc:
+        log(f"[-] {exc}", "err")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 21. MQTT Tester
+# ---------------------------------------------------------------------------
+def mqtt_test(broker: str, port: int, log: Logger) -> dict:
+    """Connect to an MQTT broker and test for open access."""
+    port = port or 1883
+    log(f"[*] MQTT test: {broker}:{port}", "cyan")
+    results: dict = {"broker": broker, "port": port, "anonymous": False, "topics": []}
+
+    try:
+        import paho.mqtt.client as mqtt
+    except ImportError:
+        log("[-] paho-mqtt not installed. Run: pip install paho-mqtt", "err")
+        # Fallback: basic TCP check
+        import socket as _socket
+        try:
+            sock = _socket.create_connection((broker, port), timeout=5)
+            sock.close()
+            log(f"[+] Port {port} is open (MQTT likely available)", "info")
+            log("  Install paho-mqtt for full testing", "warn")
+        except OSError as exc:
+            log(f"[-] Connection failed: {exc}", "err")
+        return results
+
+    messages: list[str] = []
+    connected = False
+
+    def on_connect(client, userdata, flags, rc):
+        nonlocal connected
+        if rc == 0:
+            connected = True
+            log("[+] Anonymous connection SUCCESSFUL!", "err")
+            results["anonymous"] = True
+            client.subscribe("#", 0)  # Subscribe to ALL topics
+        else:
+            log(f"[-] Connection refused (rc={rc})", "ok")
+
+    def on_message(client, userdata, msg):
+        topic = msg.topic
+        payload = msg.payload.decode("utf-8", errors="replace")[:200]
+        messages.append(f"{topic}: {payload}")
+        if len(messages) <= 20:
+            log(f"  [{topic}] {payload[:80]}", "info")
+        results["topics"].append(topic)
+
+    try:
+        client = mqtt.Client()
+        client.on_connect = on_connect
+        client.on_message = on_message
+        client.connect(broker, port, keepalive=10)
+        client.loop_start()
+        time.sleep(5)  # Listen for 5 seconds
+        client.loop_stop()
+        client.disconnect()
+    except Exception as exc:
+        log(f"[-] {exc}", "err")
+
+    if messages:
+        log(f"[!] Received {len(messages)} message(s) — broker is open!", "err")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 22. Firmware String Extractor
+# ---------------------------------------------------------------------------
+def firmware_strings(file_path: str, min_length: int, log: Logger) -> dict:
+    """Extract interesting strings from a firmware/binary file."""
+    log(f"[*] Firmware string extraction: {file_path}", "cyan")
+    min_length = max(4, min(20, min_length or 6))
+    results: dict = {"total": 0, "credentials": [], "urls": [], "keys": [], "emails": []}
+
+    path = Path(file_path)
+    if not path.is_file():
+        log("[-] File not found", "err")
+        return results
+
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        log(f"[-] {exc}", "err")
+        return results
+
+    # Extract ASCII strings
+    pattern = re.compile(rb"[\x20-\x7e]{" + str(min_length).encode() + rb",}")
+    strings = [m.group().decode("ascii") for m in pattern.finditer(data)]
+    results["total"] = len(strings)
+    log(f"  Total strings: {len(strings)}", "info")
+
+    # Categorize
+    for s in strings:
+        if _should_stop():
+            break
+        s_lower = s.lower()
+        if any(k in s_lower for k in ("password", "passwd", "secret", "token", "api_key", "apikey")):
+            results["credentials"].append(s)
+        elif re.match(r"https?://", s):
+            results["urls"].append(s)
+        elif re.match(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", s):
+            results["emails"].append(s)
+        elif any(k in s for k in ("BEGIN RSA", "BEGIN PRIVATE", "BEGIN CERTIFICATE", "ssh-rsa")):
+            results["keys"].append(s[:100])
+
+    if results["credentials"]:
+        log(f"  [!] Credentials/secrets: {len(results['credentials'])}", "err")
+        for c in results["credentials"][:10]:
+            log(f"    {c[:80]}", "err")
+    if results["urls"]:
+        log(f"  URLs: {len(results['urls'])}", "info")
+        for u in results["urls"][:10]:
+            log(f"    {u[:100]}", "info")
+    if results["emails"]:
+        log(f"  Emails: {len(results['emails'])}", "warn")
+    if results["keys"]:
+        log(f"  [!] Keys/certs: {len(results['keys'])}", "err")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 23. UPnP/SSDP Scanner
+# ---------------------------------------------------------------------------
+def upnp_scan(log: Logger) -> list[dict]:
+    """Discover UPnP devices on the local network via SSDP."""
+    import socket as _socket
+    log("[*] UPnP/SSDP discovery scan", "cyan")
+    devices: list[dict] = []
+
+    ssdp_request = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        "Host:239.255.255.250:1900\r\n"
+        "ST:ssdp:all\r\n"
+        "MX:3\r\n"
+        "Man:\"ssdp:discover\"\r\n"
+        "\r\n"
+    ).encode()
+
+    try:
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM, _socket.IPPROTO_UDP)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        sock.settimeout(5)
+        sock.sendto(ssdp_request, ("239.255.255.250", 1900))
+
+        seen: set[str] = set()
+        while True:
+            try:
+                data, addr = sock.recvfrom(4096)
+                text = data.decode("utf-8", errors="replace")
+                location = ""
+                server = ""
+                for line in text.splitlines():
+                    if line.lower().startswith("location:"):
+                        location = line.split(":", 1)[1].strip()
+                    elif line.lower().startswith("server:"):
+                        server = line.split(":", 1)[1].strip()
+                key = f"{addr[0]}:{location}"
+                if key not in seen:
+                    seen.add(key)
+                    devices.append({"ip": addr[0], "port": addr[1],
+                                    "location": location, "server": server})
+                    log(f"[+] {addr[0]}:{addr[1]} — {server or 'unknown'}", "ok")
+                    if location:
+                        log(f"    Location: {location}", "info")
+            except _socket.timeout:
+                break
+        sock.close()
+    except OSError as exc:
+        log(f"[-] {exc}", "err")
+
+    log(f"[*] {len(devices)} UPnP device(s) found", "cyan")
+    return devices
+
+
+# ---------------------------------------------------------------------------
+# 24. Honeypot Detector
+# ---------------------------------------------------------------------------
+HONEYPOT_SIGNATURES = [
+    ("Kippo", ["SSH-2.0-OpenSSH_5.1p1 Debian"]),
+    ("Cowrie", ["SSH-2.0-OpenSSH_6.0p1 Debian"]),
+    ("Dionaea", ["Microsoft Windows", "IIS/6.0"]),
+    ("Glastopf", ["Apache/2.0", "PHP/5.1"]),
+    ("Conpot", ["Siemens", "S7comm"]),
+    ("HoneyD", ["Linux 2.4", "FreeBSD 4.3"]),
+]
+
+
+def honeypot_detect(host: str, ports: list[int], log: Logger) -> dict:
+    """Detect if a target is likely a honeypot."""
+    import socket as _socket
+    log(f"[*] Honeypot detection: {host}", "cyan")
+    results: dict = {"host": host, "indicators": [], "score": 0, "likely_honeypot": False}
+
+    if not ports:
+        ports = [21, 22, 23, 25, 80, 443, 445, 3306, 3389, 8080]
+
+    # Indicator 1: Too many open ports
+    open_count = 0
+    banners: list[str] = []
+    for port in ports:
+        if _should_stop():
+            break
+        try:
+            sock = _socket.create_connection((host, port), timeout=2)
+            open_count += 1
+            sock.settimeout(3)
+            try:
+                banner = sock.recv(1024).decode("utf-8", errors="replace").strip()
+                banners.append(banner)
+            except Exception:
+                pass
+            sock.close()
+        except OSError:
+            pass
+
+    if open_count == len(ports):
+        results["score"] += 30
+        results["indicators"].append(f"ALL {len(ports)} tested ports are open")
+        log(f"[!] All {len(ports)} ports open — suspicious!", "warn")
+
+    # Indicator 2: Known honeypot banners
+    for banner in banners:
+        for hp_name, sigs in HONEYPOT_SIGNATURES:
+            for sig in sigs:
+                if sig.lower() in banner.lower():
+                    results["score"] += 25
+                    results["indicators"].append(f"Banner matches {hp_name}: {banner[:60]}")
+                    log(f"[!] Banner matches {hp_name} honeypot", "warn")
+
+    # Indicator 3: Response too fast on all ports
+    # (honeypots often respond instantly)
+
+    # Indicator 4: Default/generic banners
+    generic_count = sum(1 for b in banners if len(b) < 10 or "welcome" in b.lower())
+    if generic_count > 3:
+        results["score"] += 15
+        results["indicators"].append(f"{generic_count} generic/empty banners")
+
+    results["likely_honeypot"] = results["score"] >= 40
+    tag = "err" if results["likely_honeypot"] else "ok"
+    log(f"  Honeypot score: {results['score']}/100", tag)
+    if results["likely_honeypot"]:
+        log("[!] Target is LIKELY a honeypot — proceed with caution", "err")
+    else:
+        log("[+] No strong honeypot indicators", "ok")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 25. Log Analyzer
+# ---------------------------------------------------------------------------
+LOG_ATTACK_PATTERNS = [
+    (r"(?:union|select|insert|update|delete|drop)\s", "SQL Injection attempt"),
+    (r"<script|javascript:|onerror=|onload=", "XSS attempt"),
+    (r"\.\./|\.\.\\|%2e%2e", "Path traversal"),
+    (r"(?:cmd|powershell|bash|/bin/sh)", "Command injection"),
+    (r"(?:admin|root|administrator).*(?:login|auth)", "Brute force attempt"),
+    (r"(?:phpinfo|phpmyadmin|wp-admin|.env|.git)", "Sensitive path probe"),
+    (r"(?:curl|wget|python-requests|nikto|sqlmap|nmap)", "Scanner/tool signature"),
+    (r"(?:403|401|404).*(?:403|401|404)", "Error-based enumeration"),
+]
+
+
+def log_analyze(log_text: str, log: Logger) -> dict:
+    """Analyze web server logs for attack patterns."""
+    log("[*] Log analysis", "cyan")
+    results: dict = {"total_lines": 0, "attacks": {}, "top_ips": {}, "summary": []}
+    lines = log_text.splitlines()
+    results["total_lines"] = len(lines)
+    log(f"  Lines to analyze: {len(lines)}", "info")
+
+    attack_counts: dict[str, int] = {}
+    ip_counts: dict[str, int] = {}
+
+    for line in lines:
+        if _should_stop():
+            break
+        # Extract IP (first match)
+        ip_match = re.match(r"(\d+\.\d+\.\d+\.\d+)", line)
+        if ip_match:
+            ip = ip_match.group(1)
+            ip_counts[ip] = ip_counts.get(ip, 0) + 1
+
+        # Check attack patterns
+        for pattern, name in LOG_ATTACK_PATTERNS:
+            if re.search(pattern, line, re.I):
+                attack_counts[name] = attack_counts.get(name, 0) + 1
+
+    results["attacks"] = attack_counts
+    results["top_ips"] = dict(sorted(ip_counts.items(), key=lambda x: x[1], reverse=True)[:10])
+
+    if attack_counts:
+        log("\n  Attack patterns detected:", "warn")
+        for name, count in sorted(attack_counts.items(), key=lambda x: x[1], reverse=True):
+            log(f"    {name}: {count} occurrence(s)", "err")
+    else:
+        log("  No attack patterns detected", "ok")
+
+    if ip_counts:
+        log("\n  Top source IPs:", "info")
+        for ip, count in list(results["top_ips"].items())[:5]:
+            log(f"    {ip}: {count} requests", "info")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 26. YARA Rule Scanner
+# ---------------------------------------------------------------------------
+def yara_scan(file_path: str, rules_path: str, log: Logger) -> list[dict]:
+    """Scan a file with YARA rules."""
+    log(f"[*] YARA scan: {file_path}", "cyan")
+
+    try:
+        import yara
+    except ImportError:
+        log("[-] yara-python not installed. Run: pip install yara-python", "err")
+        return []
+
+    try:
+        if Path(rules_path).is_file():
+            rules = yara.compile(filepath=rules_path)
+        elif Path(rules_path).is_dir():
+            rule_files = {f.stem: str(f) for f in Path(rules_path).glob("*.yar")}
+            rules = yara.compile(filepaths=rule_files)
+        else:
+            log(f"[-] Rules path not found: {rules_path}", "err")
+            return []
+    except yara.SyntaxError as exc:
+        log(f"[-] YARA syntax error: {exc}", "err")
+        return []
+
+    matches: list[dict] = []
+    try:
+        results = rules.match(file_path)
+        for match in results:
+            log(f"[+] MATCH: {match.rule} (tags: {', '.join(match.tags) or 'none'})", "err")
+            matches.append({"rule": match.rule, "tags": match.tags,
+                            "strings": [(s[0], s[1], s[2][:50]) for s in match.strings[:5]]})
+    except Exception as exc:
+        log(f"[-] Scan error: {exc}", "err")
+
+    if not matches:
+        log("[+] No YARA rules matched", "ok")
+    else:
+        log(f"[!] {len(matches)} rule(s) matched!", "warn")
+    return matches
+
+
+# ---------------------------------------------------------------------------
+# 27. Baseline Diff (System Snapshot Comparison)
+# ---------------------------------------------------------------------------
+def baseline_snapshot(log: Logger) -> dict:
+    """Take a baseline snapshot of the local system (ports, services, files)."""
+    import subprocess
+    log("[*] Taking system baseline snapshot", "cyan")
+    snapshot: dict = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                      "ports": [], "processes": [], "users": []}
+
+    # Open ports
+    try:
+        result = subprocess.run(["netstat", "-an"], capture_output=True,
+                                text=True, timeout=15)
+        listening = [l for l in result.stdout.splitlines() if "LISTENING" in l or "LISTEN" in l]
+        ports = []
+        for l in listening:
+            parts = l.split()
+            for p in parts:
+                if ":" in p:
+                    port_str = p.rsplit(":", 1)[-1]
+                    try:
+                        ports.append(int(port_str))
+                    except ValueError:
+                        pass
+        snapshot["ports"] = sorted(set(ports))
+        log(f"  Listening ports: {len(snapshot['ports'])}", "info")
+    except Exception as exc:
+        log(f"  netstat failed: {exc}", "muted")
+
+    # Running processes
+    try:
+        result = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                                capture_output=True, text=True, timeout=15)
+        procs = set()
+        for line in result.stdout.splitlines():
+            parts = line.strip('"').split('","')
+            if parts:
+                procs.add(parts[0].strip('"'))
+        snapshot["processes"] = sorted(procs)
+        log(f"  Running processes: {len(snapshot['processes'])}", "info")
+    except Exception:
+        pass
+
+    return snapshot
+
+
+def baseline_compare(current: dict, previous: dict, log: Logger) -> dict:
+    """Compare two system snapshots."""
+    log("[*] Comparing baselines", "cyan")
+    diff: dict = {"new_ports": [], "closed_ports": [], "new_processes": [],
+                  "gone_processes": []}
+
+    curr_ports = set(current.get("ports", []))
+    prev_ports = set(previous.get("ports", []))
+    diff["new_ports"] = sorted(curr_ports - prev_ports)
+    diff["closed_ports"] = sorted(prev_ports - curr_ports)
+
+    if diff["new_ports"]:
+        log(f"[!] NEW listening ports: {diff['new_ports']}", "err")
+    if diff["closed_ports"]:
+        log(f"[-] Closed ports: {diff['closed_ports']}", "ok")
+
+    curr_procs = set(current.get("processes", []))
+    prev_procs = set(previous.get("processes", []))
+    diff["new_processes"] = sorted(curr_procs - prev_procs)
+    diff["gone_processes"] = sorted(prev_procs - curr_procs)
+
+    if diff["new_processes"]:
+        log(f"[!] NEW processes: {diff['new_processes'][:10]}", "warn")
+    if diff["gone_processes"]:
+        log(f"[-] Gone processes: {diff['gone_processes'][:10]}", "info")
+
+    return diff
+
+
+# ---------------------------------------------------------------------------
+# 28. OWASP Top 10 Mapper
+# ---------------------------------------------------------------------------
+OWASP_2021 = {
+    "A01": "Broken Access Control",
+    "A02": "Cryptographic Failures",
+    "A03": "Injection",
+    "A04": "Insecure Design",
+    "A05": "Security Misconfiguration",
+    "A06": "Vulnerable Components",
+    "A07": "Auth & Session Failures",
+    "A08": "Data Integrity Failures",
+    "A09": "Logging & Monitoring",
+    "A10": "SSRF",
+}
+
+FINDING_TO_OWASP = {
+    "sqli": "A03", "xss": "A03", "lfi": "A03", "command_injection": "A03",
+    "xxe": "A03", "crlf": "A03",
+    "ssrf": "A10",
+    "cors": "A01", "broken_auth": "A01", "idor": "A01", "mass_assignment": "A01",
+    "open_redirect": "A01",
+    "weak_tls": "A02", "weak_cipher": "A02", "weak_key": "A02",
+    "git_exposed": "A05", "swagger_exposed": "A05", "default_creds": "A05",
+    "missing_headers": "A05", "firebase_open": "A05",
+    "outdated_software": "A06",
+    "race_condition": "A04",
+    "no_rate_limit": "A07",
+    "no_logging": "A09",
+}
+
+
+def owasp_map(findings: list[dict], log: Logger) -> dict:
+    """Map findings to OWASP Top 10 categories."""
+    log("[*] OWASP Top 10 mapping", "cyan")
+    mapping: dict[str, list[str]] = {k: [] for k in OWASP_2021}
+
+    for finding in findings:
+        ftype = finding.get("type", "").lower()
+        category = FINDING_TO_OWASP.get(ftype)
+        if category:
+            mapping[category].append(finding.get("detail", ftype))
+
+    for code, name in OWASP_2021.items():
+        items = mapping[code]
+        if items:
+            log(f"  [{code}] {name}: {len(items)} finding(s)", "err")
+            for item in items[:3]:
+                log(f"       • {item}", "info")
+        else:
+            log(f"  [{code}] {name}: —", "muted")
+
+    affected = sum(1 for v in mapping.values() if v)
+    log(f"\n  {affected}/10 OWASP categories affected", "warn" if affected >= 3 else "ok")
+    return {"mapping": mapping, "affected_count": affected}
+
+
+# ---------------------------------------------------------------------------
+# 29. PCI-DSS Quick Check
+# ---------------------------------------------------------------------------
+def pci_dss_check(target: str, log: Logger) -> dict:
+    """Quick PCI-DSS compliance check against a target."""
+    import requests
+    log(f"[*] PCI-DSS quick check: {target}", "cyan")
+    results: dict = {"target": target, "checks": [], "pass_count": 0, "fail_count": 0}
+
+    url = f"https://{target}" if not target.startswith("http") else target
+
+    checks = [
+        ("TLS 1.2+ required", None),
+        ("No weak ciphers", None),
+        ("Security headers present", None),
+        ("No sensitive data in URL", None),
+        ("Secure cookies", None),
+    ]
+
+    # Check 1: TLS version
+    import ssl
+    import socket as _socket
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        host = target.replace("https://", "").replace("http://", "").split("/")[0]
+        sock = _socket.create_connection((host, 443), timeout=10)
+        ssock = ctx.wrap_socket(sock, server_hostname=host)
+        version = ssock.version()
+        ssock.close()
+        passed = version in ("TLSv1.2", "TLSv1.3")
+        results["checks"].append({"name": "TLS 1.2+", "passed": passed,
+                                   "detail": version})
+        log(f"  {'✓' if passed else '✗'} TLS version: {version}", "ok" if passed else "err")
+    except Exception as exc:
+        results["checks"].append({"name": "TLS 1.2+", "passed": False,
+                                   "detail": str(exc)})
+        log(f"  ✗ TLS check failed: {exc}", "err")
+
+    # Check 2: Security headers
+    try:
+        resp = requests.get(url, timeout=10, verify=False,
+                            headers={"User-Agent": "PENETRATOR/1.0"})
+        required_headers = ["Strict-Transport-Security", "X-Frame-Options",
+                           "X-Content-Type-Options"]
+        present = [h for h in required_headers if h in resp.headers]
+        passed = len(present) == len(required_headers)
+        results["checks"].append({"name": "Security headers", "passed": passed,
+                                   "detail": f"{len(present)}/{len(required_headers)}"})
+        log(f"  {'✓' if passed else '✗'} Security headers: {len(present)}/{len(required_headers)}", "ok" if passed else "err")
+
+        # Check 3: Secure cookies
+        secure_cookies = all(
+            "secure" in str(c).lower() for c in resp.cookies
+        ) if resp.cookies else True
+        results["checks"].append({"name": "Secure cookies", "passed": secure_cookies,
+                                   "detail": f"{len(resp.cookies)} cookies"})
+        log(f"  {'✓' if secure_cookies else '✗'} Secure cookie flags", "ok" if secure_cookies else "warn")
+    except requests.RequestException as exc:
+        log(f"  ✗ HTTP check failed: {exc}", "err")
+
+    results["pass_count"] = sum(1 for c in results["checks"] if c.get("passed"))
+    results["fail_count"] = sum(1 for c in results["checks"] if not c.get("passed"))
+    total = len(results["checks"])
+    log(f"\n  PCI-DSS: {results['pass_count']}/{total} checks passed",
+        "ok" if results["fail_count"] == 0 else "warn")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 30. CIS Benchmark Scanner
+# ---------------------------------------------------------------------------
+def cis_benchmark(platform: str, log: Logger) -> dict:
+    """Run basic CIS benchmark checks for Windows or Linux."""
+    import subprocess
+    is_windows = platform.lower().startswith("win")
+    log(f"[*] CIS Benchmark scan ({'Windows' if is_windows else 'Linux'})", "cyan")
+    results: dict = {"platform": platform, "checks": [], "pass": 0, "fail": 0}
+
+    if is_windows:
+        checks = [
+            ("Password policy - min length >= 8",
+             'net accounts | findstr /i "length"',
+             lambda out: "8" in out or "14" in out or "12" in out),
+            ("Account lockout enabled",
+             'net accounts | findstr /i "lockout"',
+             lambda out: "never" not in out.lower()),
+            ("Windows Firewall enabled",
+             'netsh advfirewall show allprofiles state',
+             lambda out: "ON" in out.upper()),
+            ("Remote Desktop restricted",
+             'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server" /v fDenyTSConnections',
+             lambda out: "0x1" in out),
+            ("Guest account disabled",
+             'net user guest | findstr /i "active"',
+             lambda out: "no" in out.lower()),
+            ("Audit policy configured",
+             'auditpol /get /category:*',
+             lambda out: "success" in out.lower()),
+        ]
+    else:
+        checks = [
+            ("SSH root login disabled",
+             'grep -i "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null',
+             lambda out: "no" in out.lower()),
+            ("Password min length >= 8",
+             'grep -i "PASS_MIN_LEN" /etc/login.defs 2>/dev/null',
+             lambda out: any(int(x) >= 8 for x in re.findall(r"\d+", out))),
+            ("No empty passwords",
+             'awk -F: \'($2 == "") {print $1}\' /etc/shadow 2>/dev/null',
+             lambda out: out.strip() == ""),
+            ("Firewall active",
+             'iptables -L -n 2>/dev/null | head -5',
+             lambda out: "ACCEPT" in out or "DROP" in out or "REJECT" in out),
+            ("No world-writable files in /etc",
+             'find /etc -perm -o+w -type f 2>/dev/null | head -5',
+             lambda out: out.strip() == ""),
+            ("Core dumps disabled",
+             'grep -i "hard core" /etc/security/limits.conf 2>/dev/null',
+             lambda out: "0" in out),
+        ]
+
+    for name, cmd, validator in checks:
+        if _should_stop():
+            break
+        try:
+            proc = subprocess.run(cmd, shell=True, capture_output=True,
+                                  text=True, timeout=15)
+            output = proc.stdout.strip()
+            passed = validator(output) if output else False
+            results["checks"].append({"name": name, "passed": passed,
+                                       "output": output[:200]})
+            tag = "ok" if passed else "err"
+            log(f"  {'✓' if passed else '✗'} {name}", tag)
+            if passed:
+                results["pass"] += 1
+            else:
+                results["fail"] += 1
+        except Exception as exc:
+            results["checks"].append({"name": name, "passed": False,
+                                       "error": str(exc)})
+            results["fail"] += 1
+            log(f"  ✗ {name} (error)", "muted")
+
+    total = results["pass"] + results["fail"]
+    log(f"\n  CIS Score: {results['pass']}/{total} checks passed",
+        "ok" if results["fail"] == 0 else "warn")
+    return results

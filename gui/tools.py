@@ -1855,6 +1855,484 @@ def build_network_attacks(master, runner: TaskRunner, log: LogConsole):
 
 
 # ---------------------------------------------------------------------------
+# Automation
+# ---------------------------------------------------------------------------
+def build_automation(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["automation"]
+    panel = CategoryPanel(master, t("modules.automation.title"), "⚡", color)
+
+    # Attack Chain
+    def run_attack_chain(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        steps = [s.strip() for s in str(v.get("chain_steps", "")).split(",") if s.strip()]
+        E.attack_chain(target, steps, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔗", title=t("modules.automation.attack_chain"),
+        description=t("modules.automation.attack_chain_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="example.com"),
+            FormField("chain_steps", t("modules.automation.chain_steps"),
+                      kind="textarea", placeholder="scan,enumerate,exploit"),
+        ],
+        on_run=run_attack_chain, runner=runner, log=log, category_color=color,
+    ))
+
+    # Risk Correlator
+    def run_correlate(_v, lg):
+        E.auto_correlate(lg)
+
+    panel.add(ToolCard(
+        panel, icon="📊", title=t("modules.automation.risk_correlator"),
+        description=t("modules.automation.risk_correlator_desc"),
+        fields=[],
+        on_run=run_correlate, runner=runner, log=log, category_color=color,
+    ))
+
+    # Smart Payload
+    def run_smart_payload(v, lg):
+        payload = _require(v, "payload", lg, t("ui.payload"))
+        if not payload: return
+        waf_type = str(v.get("waf_type", "generic"))
+        E.smart_payload_gen(payload, waf_type, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🧠", title=t("modules.automation.smart_payload"),
+        description=t("modules.automation.smart_payload_desc"),
+        fields=[
+            FormField("payload", t("ui.payload"), kind="textarea"),
+            FormField("waf_type", t("modules.automation.waf_type"),
+                      kind="combo", default="generic",
+                      options=["cloudflare", "modsecurity", "aws", "generic"]),
+        ],
+        on_run=run_smart_payload, runner=runner, log=log, category_color=color,
+    ))
+
+    # Executive Report
+    def run_exec_report(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if target: E.executive_report(target, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📄", title=t("modules.automation.executive_report"),
+        description=t("modules.automation.executive_report_desc"),
+        fields=[FormField("target", t("ui.target"), placeholder="example.com")],
+        on_run=run_exec_report, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Stealth
+# ---------------------------------------------------------------------------
+def build_stealth(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["stealth"]
+    panel = CategoryPanel(master, t("modules.stealth.title"), "🥷", color)
+
+    # Proxy Config
+    def run_proxy(v, lg):
+        proxy_url = _require(v, "proxy_url", lg, t("modules.stealth.proxy_url"))
+        if proxy_url: E.set_proxy(proxy_url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🌐", title=t("modules.stealth.proxy_config"),
+        description=t("modules.stealth.proxy_config_desc"),
+        fields=[FormField("proxy_url", t("modules.stealth.proxy_url"),
+                          placeholder="socks5://127.0.0.1:9050")],
+        on_run=run_proxy, runner=runner, log=log, category_color=color,
+    ))
+
+    # UA Rotation
+    def run_ua_rotation(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        count = _int(v.get("count"), 10)
+        E.ua_rotation_demo(url, count, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔄", title=t("modules.stealth.ua_rotation"),
+        description=t("modules.stealth.ua_rotation_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com"),
+            FormField("count", t("modules.stealth.count"), default="10"),
+        ],
+        on_run=run_ua_rotation, runner=runner, log=log, category_color=color,
+    ))
+
+    # Throttled Requests
+    def run_throttled(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        count = _int(v.get("count"), 20)
+        min_d = _float(v.get("min_delay"), 1.0)
+        max_d = _float(v.get("max_delay"), 3.0)
+        E.throttled_requests(url, count, min_d, max_d, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🐢", title=t("modules.stealth.throttled_requests"),
+        description=t("modules.stealth.throttled_requests_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com"),
+            FormField("count", t("modules.stealth.count"), default="20"),
+            FormField("min_delay", t("modules.stealth.min_delay"), default="1.0"),
+            FormField("max_delay", t("modules.stealth.max_delay"), default="3.0"),
+        ],
+        on_run=run_throttled, runner=runner, log=log, category_color=color,
+    ))
+
+    # WAF Bypass
+    def run_waf_bypass(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        payload = _require(v, "payload", lg, t("ui.payload"))
+        if not payload: return
+        waf_type = str(v.get("waf_type", "generic"))
+        E.waf_bypass_test(url, payload, waf_type, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🥊", title=t("modules.stealth.waf_bypass"),
+        description=t("modules.stealth.waf_bypass_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com"),
+            FormField("payload", t("ui.payload"), kind="textarea"),
+            FormField("waf_type", t("modules.stealth.waf_type"),
+                      kind="combo", default="generic",
+                      options=["cloudflare", "modsecurity", "aws", "generic"]),
+        ],
+        on_run=run_waf_bypass, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
+def build_integrations(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["integrations"]
+    panel = CategoryPanel(master, t("modules.integrations.title"), "🔗", color)
+
+    # Nmap Import
+    def run_nmap_import(v, lg):
+        path = _require(v, "xml_path", lg, t("modules.integrations.xml_path"))
+        if path: E.nmap_import(path, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📥", title=t("modules.integrations.nmap_import"),
+        description=t("modules.integrations.nmap_import_desc"),
+        fields=[FormField("xml_path", t("modules.integrations.xml_path"),
+                          kind="file")],
+        on_run=run_nmap_import, runner=runner, log=log, category_color=color,
+    ))
+
+    # Nuclei Run
+    def run_nuclei(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        templates = str(v.get("templates_path", "")).strip()
+        E.nuclei_run(target, templates, lg)
+
+    panel.add(ToolCard(
+        panel, icon="⚛️", title=t("modules.integrations.nuclei_run"),
+        description=t("modules.integrations.nuclei_run_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="example.com"),
+            FormField("templates_path", t("modules.integrations.templates_path"),
+                      placeholder="/path/to/templates"),
+        ],
+        on_run=run_nuclei, runner=runner, log=log, category_color=color,
+    ))
+
+    # Shodan Lookup
+    def run_shodan(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        key = _require(v, "api_key", lg, t("modules.integrations.api_key"))
+        if not key: return
+        E.shodan_lookup(target, key, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔭", title=t("modules.integrations.shodan_lookup"),
+        description=t("modules.integrations.shodan_lookup_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="example.com"),
+            FormField("api_key", t("modules.integrations.api_key"),
+                      placeholder="your-shodan-api-key"),
+        ],
+        on_run=run_shodan, runner=runner, log=log, category_color=color,
+    ))
+
+    # MSF RPC
+    def run_msf_rpc(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if not host: return
+        port = _int(v.get("port"), 55553)
+        token = _require(v, "msf_token", lg, t("modules.integrations.msf_token"))
+        if not token: return
+        E.msf_rpc_check(host, port, token, lg)
+
+    panel.add(ToolCard(
+        panel, icon="💀", title=t("modules.integrations.msf_rpc"),
+        description=t("modules.integrations.msf_rpc_desc"),
+        fields=[
+            FormField("host", t("ui.host"), placeholder="127.0.0.1"),
+            FormField("port", t("ui.port"), default="55553"),
+            FormField("msf_token", t("modules.integrations.msf_token"),
+                      placeholder="msf-token"),
+        ],
+        on_run=run_msf_rpc, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Email Defense
+# ---------------------------------------------------------------------------
+def build_email_defense(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["email_defense"]
+    panel = CategoryPanel(master, t("modules.email_defense.title"), "📧", color)
+
+    # SPF/DKIM/DMARC
+    def run_email_sec(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.email_security_check(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🛡️", title=t("modules.email_defense.spf_dkim_dmarc"),
+        description=t("modules.email_defense.spf_dkim_dmarc_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_email_sec, runner=runner, log=log, category_color=color,
+    ))
+
+    # Header Analyzer
+    def run_header_analyze(v, lg):
+        headers = _require(v, "headers", lg, t("modules.email_defense.headers"))
+        if headers: E.email_header_analyze(headers, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📋", title=t("modules.email_defense.header_analyzer"),
+        description=t("modules.email_defense.header_analyzer_desc"),
+        fields=[FormField("headers", t("modules.email_defense.headers"),
+                          kind="textarea",
+                          placeholder="Paste email headers here...")],
+        on_run=run_header_analyze, runner=runner, log=log, category_color=color,
+    ))
+
+    # Homoglyph Detector
+    def run_homoglyph(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.homoglyph_detect(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔤", title=t("modules.email_defense.homoglyph_detect"),
+        description=t("modules.email_defense.homoglyph_detect_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_homoglyph, runner=runner, log=log, category_color=color,
+    ))
+
+    # Phishing URL
+    def run_phishing_url(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.phishing_url_analyze(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🎣", title=t("modules.email_defense.phishing_url"),
+        description=t("modules.email_defense.phishing_url_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://suspicious-site.com")],
+        on_run=run_phishing_url, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Mobile / IoT
+# ---------------------------------------------------------------------------
+def build_mobile_iot(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["mobile_iot"]
+    panel = CategoryPanel(master, t("modules.mobile_iot.title"), "📱", color)
+
+    # APK Analyzer
+    def run_apk_analyze(v, lg):
+        path = _require(v, "apk_path", lg, t("modules.mobile_iot.apk_path"))
+        if path: E.apk_analyze(path, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🤖", title=t("modules.mobile_iot.apk_analyzer"),
+        description=t("modules.mobile_iot.apk_analyzer_desc"),
+        fields=[FormField("apk_path", t("modules.mobile_iot.apk_path"),
+                          kind="file")],
+        on_run=run_apk_analyze, runner=runner, log=log, category_color=color,
+    ))
+
+    # MQTT Tester
+    def run_mqtt(v, lg):
+        broker = _require(v, "broker", lg, t("modules.mobile_iot.broker"))
+        if not broker: return
+        port = _int(v.get("port"), 1883)
+        E.mqtt_test(broker, port, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📡", title=t("modules.mobile_iot.mqtt_tester"),
+        description=t("modules.mobile_iot.mqtt_tester_desc"),
+        fields=[
+            FormField("broker", t("modules.mobile_iot.broker"),
+                      placeholder="mqtt.example.com"),
+            FormField("port", t("ui.port"), default="1883"),
+        ],
+        on_run=run_mqtt, runner=runner, log=log, category_color=color,
+    ))
+
+    # Firmware Strings
+    def run_firmware_strings(v, lg):
+        path = _require(v, "file_path", lg, t("ui.file_path"))
+        if not path: return
+        min_len = _int(v.get("min_length"), 6)
+        E.firmware_strings(path, min_len, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔤", title=t("modules.mobile_iot.firmware_strings"),
+        description=t("modules.mobile_iot.firmware_strings_desc"),
+        fields=[
+            FormField("file_path", t("ui.file_path"), kind="file"),
+            FormField("min_length", t("modules.mobile_iot.min_length"),
+                      default="6"),
+        ],
+        on_run=run_firmware_strings, runner=runner, log=log, category_color=color,
+    ))
+
+    # UPnP Scanner
+    def run_upnp(_v, lg):
+        E.upnp_scan(lg)
+
+    panel.add(ToolCard(
+        panel, icon="📶", title=t("modules.mobile_iot.upnp_scanner"),
+        description=t("modules.mobile_iot.upnp_scanner_desc"),
+        fields=[],
+        on_run=run_upnp, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Blue Team
+# ---------------------------------------------------------------------------
+def build_blue_team(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["blue_team"]
+    panel = CategoryPanel(master, t("modules.blue_team.title"), "🛡️", color)
+
+    # Honeypot Detector
+    def run_honeypot(v, lg):
+        host = _require(v, "host", lg, t("ui.host"))
+        if host: E.honeypot_detect(host, [], lg)
+
+    panel.add(ToolCard(
+        panel, icon="🍯", title=t("modules.blue_team.honeypot_detect"),
+        description=t("modules.blue_team.honeypot_detect_desc"),
+        fields=[FormField("host", t("ui.host"), placeholder="10.0.0.1")],
+        on_run=run_honeypot, runner=runner, log=log, category_color=color,
+    ))
+
+    # Log Analyzer
+    def run_log_analyze(v, lg):
+        text = _require(v, "log_text", lg, t("modules.blue_team.log_text"))
+        if text: E.log_analyze(text, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📜", title=t("modules.blue_team.log_analyzer"),
+        description=t("modules.blue_team.log_analyzer_desc"),
+        fields=[FormField("log_text", t("modules.blue_team.log_text"),
+                          kind="textarea",
+                          placeholder="Paste log entries here...")],
+        on_run=run_log_analyze, runner=runner, log=log, category_color=color,
+    ))
+
+    # YARA Scanner
+    def run_yara(v, lg):
+        fp = _require(v, "file_path", lg, t("ui.file_path"))
+        rp = _require(v, "rules_path", lg, t("modules.blue_team.rules_path"))
+        if fp and rp: E.yara_scan(fp, rp, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔍", title=t("modules.blue_team.yara_scanner"),
+        description=t("modules.blue_team.yara_scanner_desc"),
+        fields=[
+            FormField("file_path", t("ui.file_path"), kind="file"),
+            FormField("rules_path", t("modules.blue_team.rules_path"),
+                      kind="file"),
+        ],
+        on_run=run_yara, runner=runner, log=log, category_color=color,
+    ))
+
+    # Baseline Snapshot
+    def run_baseline(_v, lg):
+        E.baseline_snapshot(lg)
+
+    panel.add(ToolCard(
+        panel, icon="📸", title=t("modules.blue_team.baseline_snapshot"),
+        description=t("modules.blue_team.baseline_snapshot_desc"),
+        fields=[],
+        on_run=run_baseline, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
+# Compliance
+# ---------------------------------------------------------------------------
+def build_compliance(master, runner: TaskRunner, log: LogConsole):
+    color = T.CATEGORY_COLORS["compliance"]
+    panel = CategoryPanel(master, t("modules.compliance.title"), "📋", color)
+
+    # OWASP Map
+    def run_owasp(_v, lg):
+        E.owasp_map([], lg)
+
+    panel.add(ToolCard(
+        panel, icon="🗺️", title=t("modules.compliance.owasp_map"),
+        description=t("modules.compliance.owasp_map_desc"),
+        fields=[],
+        on_run=run_owasp, runner=runner, log=log, category_color=color,
+    ))
+
+    # PCI-DSS
+    def run_pci(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if target: E.pci_dss_check(target, lg)
+
+    panel.add(ToolCard(
+        panel, icon="💳", title=t("modules.compliance.pci_dss"),
+        description=t("modules.compliance.pci_dss_desc"),
+        fields=[FormField("target", t("ui.target"), placeholder="example.com")],
+        on_run=run_pci, runner=runner, log=log, category_color=color,
+    ))
+
+    # CIS Benchmark
+    def run_cis(v, lg):
+        platform = str(v.get("platform", "Linux"))
+        E.cis_benchmark(platform, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📐", title=t("modules.compliance.cis_benchmark"),
+        description=t("modules.compliance.cis_benchmark_desc"),
+        fields=[
+            FormField("platform", t("modules.compliance.platform"),
+                      kind="combo", default="Linux",
+                      options=["Windows", "Linux"]),
+        ],
+        on_run=run_cis, runner=runner, log=log, category_color=color,
+    ))
+
+    return panel
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 BUILDERS: dict[str, Callable[..., ctk.CTkBaseClass]] = {
@@ -1873,6 +2351,13 @@ BUILDERS: dict[str, Callable[..., ctk.CTkBaseClass]] = {
     "crypto_tools":        build_crypto_tools,
     "cloud_security":      build_cloud_security,
     "network_attacks":     build_network_attacks,
+    "automation":          build_automation,
+    "stealth":             build_stealth,
+    "integrations":        build_integrations,
+    "email_defense":       build_email_defense,
+    "mobile_iot":          build_mobile_iot,
+    "blue_team":           build_blue_team,
+    "compliance":          build_compliance,
 }
 
 

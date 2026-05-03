@@ -45,6 +45,13 @@ CATEGORY_COLORS = {
     "crypto_tools":        "#06b6d4",
     "cloud_security":      "#8b5cf6",
     "network_attacks":     "#dc2626",
+    "automation":          "#f59e0b",  # amber
+    "stealth":             "#6366f1",  # indigo
+    "integrations":        "#0ea5e9",  # sky blue
+    "email_defense":       "#f97316",  # orange
+    "mobile_iot":          "#84cc16",  # lime
+    "blue_team":           "#2563eb",  # blue
+    "compliance":          "#7c3aed",  # violet
     "settings":            "#64748b",
     "about":               "#64748b",
 }

@@ -115,6 +115,13 @@ CATEGORIES: list[tuple[str, str, str, str]] = [
     ("forensic",             "🔬", "menu.main.forensic",             "menu.main.forensic_desc"),
     ("payload",              "💣", "menu.main.payload",              "menu.main.payload_desc"),
     ("osint",                "🕵️", "menu.main.osint",                "menu.main.osint_desc"),
+    ("automation",           "⚡", "menu.main.automation",           "menu.main.automation_desc"),
+    ("stealth",              "🥷", "menu.main.stealth",              "menu.main.stealth_desc"),
+    ("integrations",         "🔗", "menu.main.integrations",         "menu.main.integrations_desc"),
+    ("email_defense",        "📧", "menu.main.email_defense",        "menu.main.email_defense_desc"),
+    ("mobile_iot",           "📱", "menu.main.mobile_iot",           "menu.main.mobile_iot_desc"),
+    ("blue_team",            "🛡️", "menu.main.blue_team",            "menu.main.blue_team_desc"),
+    ("compliance",           "📋", "menu.main.compliance",           "menu.main.compliance_desc"),
 ]
 
 BOTTOM_CATEGORIES: list[tuple[str, str, str, str]] = [
