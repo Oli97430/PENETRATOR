@@ -1,0 +1,37 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Bandit
+        run: pip install "bandit[toml]"
+
+      - name: Run Bandit
+        run: bandit -c pyproject.toml -r core gui modules plugins -lll --quiet
+        continue-on-error: true
+
+      - name: Bandit summary report
+        if: always()
+        shell: bash
+        run: |
+          echo '## Bandit security scan' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          bandit -c pyproject.toml -r core gui modules plugins --severity-level low \
+            --format custom --msg-template "{relpath}:{line} {severity} {test_id} {msg}" \
+            >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY

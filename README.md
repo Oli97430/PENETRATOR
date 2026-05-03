@@ -16,6 +16,14 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Oli97430/PENETRATOR/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Oli97430/PENETRATOR/actions/workflows/ci.yml/badge.svg"/></a>
+  <a href="https://github.com/Oli97430/PENETRATOR/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/Oli97430/PENETRATOR/actions/workflows/codeql.yml/badge.svg"/></a>
+  <a href="https://github.com/Oli97430/PENETRATOR/actions/workflows/security.yml"><img alt="Security" src="https://github.com/Oli97430/PENETRATOR/actions/workflows/security.yml/badge.svg"/></a>
+  <a href="https://codecov.io/gh/Oli97430/PENETRATOR"><img alt="codecov" src="https://codecov.io/gh/Oli97430/PENETRATOR/branch/main/graph/badge.svg"/></a>
+  <a href="https://github.com/Oli97430/PENETRATOR/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Oli97430/PENETRATOR?color=ff3860&logo=github"/></a>
+</p>
+
+<p align="center">
   <a href="#-install-en-1-clic">Install</a> ·
   <a href="#-features">Features</a> ·
   <a href="#-screenshots">Screenshots</a> ·

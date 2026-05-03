@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest ruff pip-audit
+          pip install pytest pytest-cov ruff pip-audit
 
       - name: Compile-check
         run: |
@@ -44,8 +44,17 @@ jobs:
           Write-Output $output
           exit 0
 
-      - name: Engine functional tests
-        run: python -m pytest tests/ -v
+      - name: Engine functional tests + coverage
+        run: |
+          python -m pytest tests/ -v --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
 
       - name: Verify locales (no missing keys)
         run: python tests/check_locales.py

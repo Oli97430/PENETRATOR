@@ -42,3 +42,33 @@ ignore = [
 testpaths = ["tests"]
 python_files = "test_*.py"
 addopts = "-ra -q"
+
+[tool.coverage.run]
+source = ["core", "gui"]
+omit = [
+    "gui/app.py",        # Tk widgets, hard to unit-test
+    "gui/tools.py",      # Same
+    "gui/widgets.py",    # Same
+    "*/tests/*",
+]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_empty = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "build", "dist", ".github"]
+skips = [
+    "B101",  # assert_used (we use asserts in tests)
+    "B311",  # random not for crypto (we use secrets where it matters)
+    "B404",  # subprocess import (legitimate for tool wrappers)
+    "B603",  # subprocess without shell=True is the *safe* form
+    "B607",  # partial path — we rely on PATH lookup intentionally
+]
