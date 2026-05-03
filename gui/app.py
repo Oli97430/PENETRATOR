@@ -300,13 +300,25 @@ class SettingsFrame(Card):
         )
         clear_btn.grid(row=next_row + 1, column=0, sticky="w", padx=18, pady=4)
 
+        save_ws_btn = GhostButton(
+            self, text=f"  💾  {t('menu.settings.save_workspace')}",
+            command=self._save_workspace,
+        )
+        save_ws_btn.grid(row=next_row + 2, column=0, sticky="w", padx=18, pady=4)
+
+        load_ws_btn = GhostButton(
+            self, text=f"  📂  {t('menu.settings.load_workspace')}",
+            command=self._load_workspace,
+        )
+        load_ws_btn.grid(row=next_row + 3, column=0, sticky="w", padx=18, pady=4)
+
         repo_btn = GhostButton(
             self, text=f"  🔗  {t('menu.settings.open_repo')}",
             command=lambda: __import__("webbrowser").open(
                 "https://github.com/Oli97430/PENETRATOR"
             ),
         )
-        repo_btn.grid(row=next_row + 2, column=0, sticky="w", padx=18, pady=4)
+        repo_btn.grid(row=next_row + 4, column=0, sticky="w", padx=18, pady=4)
 
     def _clear_form_memory(self) -> None:
         try:
@@ -317,6 +329,72 @@ class SettingsFrame(Card):
         except Exception as exc:
             if self.log is not None:
                 self.log.write(f"[-] {exc}", "err")
+
+    def _save_workspace(self) -> None:
+        from datetime import datetime
+        from tkinter import filedialog
+        import json as _json
+        from gui import engine as _engine
+        from core.banner import VERSION
+
+        default = f"workspace_{datetime.now():%Y%m%d_%H%M%S}.penetrator"
+        path = filedialog.asksaveasfilename(
+            defaultextension=".penetrator",
+            initialfile=default,
+            filetypes=[("PENETRATOR workspace", "*.penetrator"),
+                       ("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        snapshot = {
+            "version": 1,
+            "app_version": VERSION,
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "session": _engine.session_dump(),
+            "log": (self.log.box.get("1.0", "end").rstrip()
+                    if self.log is not None else ""),
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                _json.dump(snapshot, fh, ensure_ascii=False, indent=2)
+            if self.log is not None:
+                self.log.write(
+                    f"[+] {t('menu.settings.workspace_saved', path=path)}",
+                    "ok")
+        except OSError as exc:
+            if self.log is not None:
+                self.log.write(f"[-] {exc}", "err")
+
+    def _load_workspace(self) -> None:
+        from tkinter import filedialog
+        import json as _json
+        from gui import engine as _engine
+
+        path = filedialog.askopenfilename(
+            filetypes=[("PENETRATOR workspace", "*.penetrator"),
+                       ("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = _json.load(fh)
+            if not isinstance(data, dict) or data.get("version") != 1:
+                raise ValueError("schema mismatch")
+            _engine.session_restore(data.get("session", {}))
+            if self.log is not None:
+                if data.get("log"):
+                    self.log.write("──── workspace log ────", "muted")
+                    for line in str(data["log"]).splitlines():
+                        self.log.write(line, "info")
+                self.log.write(
+                    f"[+] {t('menu.settings.workspace_loaded', path=path)}",
+                    "ok")
+        except Exception as exc:
+            if self.log is not None:
+                self.log.write(
+                    f"[-] {t('menu.settings.workspace_invalid')}: {exc}",
+                    "err")
 
 
 class AboutFrame(Card):
@@ -483,8 +561,9 @@ class App(ctk.CTk):
 
         self.log.write(f"[+] PENETRATOR v{VERSION} ready. {t('ui.warning_legal')}",
                        "accent")
-        self.log.write("[i] Shortcuts: Ctrl+L clear · Ctrl+S save log · "
-                       "F1 about · Ctrl+, settings · Ctrl+Q quit", "muted")
+        self.log.write("[i] Shortcuts: Ctrl+P quick open · Ctrl+L clear · "
+                       "Ctrl+S save log · F1 about · Ctrl+, settings · Ctrl+Q quit",
+                       "muted")
 
         # --- live clock + window icon + shortcuts + close handler ---
         self._clock_job: str | None = None
@@ -537,6 +616,18 @@ class App(ctk.CTk):
         self.bind_all("<Control-comma>",
                       lambda e: (self._on_category("settings"),
                                  self.sidebar.highlight("settings")))
+        # Quick launcher (VS Code style)
+        self.bind_all("<Control-p>", lambda e: self._open_launcher())
+        self.bind_all("<Control-P>", lambda e: self._open_launcher())
+
+    def _open_launcher(self) -> None:
+        from gui.launcher import QuickLauncher
+
+        def jump(key: str) -> None:
+            self._on_category(key)
+            self.sidebar.highlight(key)
+
+        QuickLauncher(self, on_pick=jump)
 
     def _on_close(self) -> None:
         if self.runner.is_running():

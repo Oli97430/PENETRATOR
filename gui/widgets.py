@@ -296,6 +296,8 @@ class LogConsole(Card):
             filetypes=[
                 ("Text", "*.txt"),
                 ("HTML report", "*.html"),
+                ("Markdown report", "*.md"),
+                ("PDF report", "*.pdf"),
                 ("JSON (structured)", "*.json"),
                 ("All files", "*.*"),
             ],
@@ -310,6 +312,20 @@ class LogConsole(Card):
                 with open(path, "w", encoding="utf-8") as fh:
                     _json.dump({"version": 1, "entries": entries}, fh,
                                ensure_ascii=False, indent=2)
+            elif ext == "md":
+                lines_md: list[str] = [
+                    "# 🗡️ PENETRATOR — log report",
+                    "",
+                    f"_Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_",
+                    "",
+                    "```",
+                ]
+                lines_md.extend(content.splitlines())
+                lines_md.append("```")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(lines_md) + "\n")
+            elif ext == "pdf":
+                self._save_pdf(path, content)
             elif ext in ("html", "htm"):
                 lines_html: list[str] = []
                 for line in content.splitlines():
@@ -350,6 +366,53 @@ class LogConsole(Card):
             self.write(f"[+] Log saved -> {path}", "ok")
         except OSError as exc:
             self.write(f"[-] Cannot save log: {exc}", "err")
+
+    def _save_pdf(self, path: str, content: str) -> None:
+        """Render the log to a PDF using fpdf2 (or fall back to .txt)."""
+        try:
+            from fpdf import FPDF  # type: ignore
+        except ImportError:
+            self.write("[!] fpdf2 not installed — falling back to .txt",
+                       "warn")
+            with open(path + ".txt", "w", encoding="utf-8") as fh:
+                fh.write(content + "\n")
+            return
+        from datetime import datetime
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.set_text_color(255, 56, 96)
+        pdf.cell(0, 12, "PENETRATOR - log report", new_x="LMARGIN",
+                 new_y="NEXT", align="L")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(0, 6, f"Generated {datetime.now():%Y-%m-%d %H:%M:%S}",
+                 new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+        pdf.set_draw_color(80, 80, 80)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(4)
+
+        # Body — color per severity tag
+        pdf.set_font("Courier", "", 9)
+        for raw in content.splitlines():
+            line = raw.replace("→", "->")  # arrows
+            line = line.encode("latin-1", "replace").decode("latin-1")
+            if line.startswith("[+]"):
+                pdf.set_text_color(16, 160, 100)
+            elif line.startswith("[-]"):
+                pdf.set_text_color(220, 50, 50)
+            elif line.startswith("[!]"):
+                pdf.set_text_color(220, 170, 30)
+            elif line.startswith("[*]"):
+                pdf.set_text_color(34, 200, 230)
+            elif line.startswith("[i]"):
+                pdf.set_text_color(140, 140, 140)
+            else:
+                pdf.set_text_color(40, 40, 40)
+            pdf.cell(0, 4, line[:140], new_x="LMARGIN", new_y="NEXT")
+        pdf.output(path)
 
 
 # ---------------------------------------------------------------------------

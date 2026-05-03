@@ -102,7 +102,12 @@
       "clear_form_memory": "Clear saved form values",
       "form_memory_cleared": "All saved form values have been cleared.",
       "open_repo": "Open project on GitHub",
-      "preferences": "Preferences"
+      "preferences": "Preferences",
+      "save_workspace": "Save workspace (.penetrator)",
+      "load_workspace": "Load workspace",
+      "workspace_saved": "Workspace saved -> {path}",
+      "workspace_loaded": "Workspace loaded -> {path}",
+      "workspace_invalid": "Invalid workspace file"
     },
     "language": {
       "title": "Select a language",
@@ -139,6 +144,8 @@
       "limit": "Limit",
       "tls_scan": "TLS / SSL Scanner",
       "tls_scan_desc": "Cert chain, expiry, legacy protocols (TLS 1.0/1.1)",
+      "tls_chain": "TLS scan on last open ports",
+      "tls_chain_desc": "Reuses the last port-scan result, runs TLS scan on each TLS-likely open port",
       "takeover": "Subdomain Takeover",
       "takeover_desc": "Detect dangling CNAMEs to taken-over services",
       "http_headers": "HTTP Headers Analyzer",

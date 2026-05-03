@@ -102,7 +102,12 @@
       "clear_form_memory": "Borrar valores de formulario guardados",
       "form_memory_cleared": "Todos los valores guardados se han borrado.",
       "open_repo": "Abrir proyecto en GitHub",
-      "preferences": "Preferencias"
+      "preferences": "Preferencias",
+      "save_workspace": "Guardar espacio de trabajo (.penetrator)",
+      "load_workspace": "Cargar espacio de trabajo",
+      "workspace_saved": "Espacio de trabajo guardado -> {path}",
+      "workspace_loaded": "Espacio de trabajo cargado -> {path}",
+      "workspace_invalid": "Archivo de espacio de trabajo inválido"
     },
     "language": {
       "title": "Selecciona un idioma",
@@ -139,6 +144,8 @@
       "limit": "Límite",
       "tls_scan": "Escáner TLS / SSL",
       "tls_scan_desc": "Cadena de cert., expiración, protocolos legacy",
+      "tls_chain": "Escaneo TLS sobre últimos puertos abiertos",
+      "tls_chain_desc": "Reutiliza el último escaneo de puertos y ejecuta TLS en cada puerto TLS probable",
       "takeover": "Toma de subdominio",
       "takeover_desc": "Detectar CNAMEs huérfanos vulnerables",
       "http_headers": "Analizador de cabeceras HTTP",

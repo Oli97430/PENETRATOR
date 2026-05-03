@@ -102,7 +102,12 @@
       "clear_form_memory": "Effacer les champs mémorisés",
       "form_memory_cleared": "Tous les champs mémorisés ont été effacés.",
       "open_repo": "Ouvrir le projet sur GitHub",
-      "preferences": "Préférences"
+      "preferences": "Préférences",
+      "save_workspace": "Enregistrer l'espace de travail (.penetrator)",
+      "load_workspace": "Charger un espace de travail",
+      "workspace_saved": "Espace de travail enregistré -> {path}",
+      "workspace_loaded": "Espace de travail chargé -> {path}",
+      "workspace_invalid": "Fichier d'espace de travail invalide"
     },
     "language": {
       "title": "Sélectionnez une langue",
@@ -139,6 +144,8 @@
       "limit": "Limite",
       "tls_scan": "Scanner TLS / SSL",
       "tls_scan_desc": "Chaîne de cert, expiration, protocoles obsolètes",
+      "tls_chain": "Scan TLS sur derniers ports ouverts",
+      "tls_chain_desc": "Réutilise le dernier scan de ports et lance TLS sur chaque port TLS probable",
       "takeover": "Takeover de sous-domaine",
       "takeover_desc": "Détecter les CNAMEs orphelins exploitables",
       "http_headers": "Analyseur d'en-têtes HTTP",

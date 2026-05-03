@@ -389,6 +389,17 @@ def build_info_gathering(master, runner: TaskRunner, log: LogConsole):
         on_run=run_tls, runner=runner, log=log, category_color=color,
     ))
 
+    # TLS chain — uses last port scan results
+    def run_tls_chain(_v, lg):
+        E.tls_scan_last_open_tls(lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔗", title=t("modules.info_gathering.tls_chain"),
+        description=t("modules.info_gathering.tls_chain_desc"),
+        fields=[],
+        on_run=run_tls_chain, runner=runner, log=log, category_color=color,
+    ))
+
     # Subdomain takeover
     def run_takeover(v, lg):
         host = _require(v, "host", lg, t("ui.host"))

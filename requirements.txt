@@ -19,3 +19,6 @@ Pillow>=11.3.0
 
 # --- OSINT ---
 phonenumbers>=9.0.29
+
+# --- Reporting ---
+fpdf2>=2.7.0

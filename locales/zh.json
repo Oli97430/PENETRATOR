@@ -102,7 +102,12 @@
       "clear_form_memory": "清除已保存的表单值",
       "form_memory_cleared": "所有已保存的表单值已被清除。",
       "open_repo": "在 GitHub 上打开项目",
-      "preferences": "偏好设置"
+      "preferences": "偏好设置",
+      "save_workspace": "保存工作区 (.penetrator)",
+      "load_workspace": "加载工作区",
+      "workspace_saved": "工作区已保存 -> {path}",
+      "workspace_loaded": "工作区已加载 -> {path}",
+      "workspace_invalid": "工作区文件无效"
     },
     "language": {
       "title": "选择语言",
@@ -139,6 +144,8 @@
       "limit": "限制",
       "tls_scan": "TLS / SSL 扫描器",
       "tls_scan_desc": "证书链、过期时间、旧版协议 (TLS 1.0/1.1)",
+      "tls_chain": "对上次开放端口运行 TLS 扫描",
+      "tls_chain_desc": "复用上次端口扫描结果, 对每个可能的 TLS 端口运行 TLS 扫描",
       "takeover": "子域名劫持",
       "takeover_desc": "检测可被劫持的悬空 CNAME",
       "http_headers": "HTTP 响应头分析",

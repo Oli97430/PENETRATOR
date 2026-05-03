@@ -102,7 +102,12 @@
       "clear_form_memory": "Gespeicherte Eingaben löschen",
       "form_memory_cleared": "Alle gespeicherten Eingaben wurden gelöscht.",
       "open_repo": "Projekt auf GitHub öffnen",
-      "preferences": "Voreinstellungen"
+      "preferences": "Voreinstellungen",
+      "save_workspace": "Arbeitsbereich speichern (.penetrator)",
+      "load_workspace": "Arbeitsbereich laden",
+      "workspace_saved": "Arbeitsbereich gespeichert -> {path}",
+      "workspace_loaded": "Arbeitsbereich geladen -> {path}",
+      "workspace_invalid": "Ungültige Arbeitsbereichs-Datei"
     },
     "language": {
       "title": "Sprache wählen",
@@ -139,6 +144,8 @@
       "limit": "Limit",
       "tls_scan": "TLS-/SSL-Scanner",
       "tls_scan_desc": "Zertifikatskette, Ablauf, Legacy-Protokolle",
+      "tls_chain": "TLS-Scan auf zuletzt offenen Ports",
+      "tls_chain_desc": "Verwendet den letzten Port-Scan und führt TLS auf jedem TLS-Port aus",
       "takeover": "Subdomain-Takeover",
       "takeover_desc": "Hängende CNAMEs zu übernommenen Diensten erkennen",
       "http_headers": "HTTP-Header-Analyse",

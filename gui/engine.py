@@ -37,6 +37,34 @@ def set_stop_check(fn: Callable[[], bool] | None) -> None:
 def _should_stop() -> bool:
     return _stop_check() if _stop_check is not None else False
 
+
+# Cross-tool memory: last scan / discovery results, accessible to "chain" tools.
+_session: dict[str, object] = {
+    "last_target": None,
+    "last_open_ports": [],
+    "last_subdomains": [],
+    "last_buster_paths": [],
+}
+
+
+def session_get(key: str, default=None):
+    return _session.get(key, default)
+
+
+def session_set(key: str, value) -> None:
+    _session[key] = value
+
+
+def session_dump() -> dict:
+    """Snapshot the cross-tool memory (used by the workspace save feature)."""
+    import copy
+    return copy.deepcopy(_session)
+
+
+def session_restore(snapshot: dict) -> None:
+    if isinstance(snapshot, dict):
+        _session.update(snapshot)
+
 # ---------------------------------------------------------------------------
 # Constants (shared with CLI modules)
 # ---------------------------------------------------------------------------
@@ -259,7 +287,10 @@ def scan_ports(target: str, start: int, end: int, threads: int, timeout: float,
                 open_ports.append(port)
                 log(f"[+] {port:>5}/tcp   {service}", "ok")
     log(f"[*] Found {len(open_ports)} open port(s) in {time.time()-t0:.2f}s", "cyan")
-    return sorted(open_ports)
+    sorted_ports = sorted(open_ports)
+    session_set("last_target", target)
+    session_set("last_open_ports", sorted_ports)
+    return sorted_ports
 
 
 def resolve_host(host: str, log: Logger) -> list[str]:
@@ -1149,6 +1180,30 @@ def scan_with_banners(target: str, start: int, end: int, threads: int,
 # ---------------------------------------------------------------------------
 # TLS / SSL scanner
 # ---------------------------------------------------------------------------
+def tls_scan_last_open_tls(log: Logger) -> list[dict]:
+    """Cross-tool chain: pick TLS-likely ports from the last port scan and run
+    tls_scan() on each."""
+    target = session_get("last_target")
+    open_ports = session_get("last_open_ports") or []
+    if not target or not open_ports:
+        log("[-] No previous port scan in this session. Run a scan first.",
+            "err")
+        return []
+    tls_ports = [p for p in open_ports if p in (443, 465, 587, 636, 993, 995,
+                                                8443, 9443, 4443)]
+    if not tls_ports:
+        log(f"[!] No TLS-likely ports among {open_ports}.", "warn")
+        return []
+    log(f"[*] Chain: TLS scan on {target} ports {tls_ports}", "cyan")
+    out: list[dict] = []
+    for p in tls_ports:
+        if _should_stop():
+            break
+        result = tls_scan(target, p, log)
+        out.append(result)
+    return out
+
+
 def tls_scan(host: str, port: int, log: Logger) -> dict:
     """Inspect cert chain, expiry, supported TLS versions and weak protocols."""
     import socket as _s
@@ -1468,7 +1523,10 @@ def scan_ports_async(target: str, start: int, end: int, concurrency: int,
             loop.close()
     log(f"[*] Found {len(open_ports)} open port(s) in {time.time() - t0:.2f}s "
         "(async)", "cyan")
-    return sorted(open_ports)
+    sorted_ports = sorted(open_ports)
+    session_set("last_target", target)
+    session_set("last_open_ports", sorted_ports)
+    return sorted_ports
 
 
 # ---------------------------------------------------------------------------
