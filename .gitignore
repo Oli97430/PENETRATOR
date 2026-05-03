@@ -15,6 +15,7 @@ env/
 build/
 dist/
 *.spec
+!PENETRATOR.spec
 
 # Local config (per-user)
 config.json
