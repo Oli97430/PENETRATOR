@@ -1836,8 +1836,11 @@ def build_network_attacks(master, runner: TaskRunner, log: LogConsole):
     def run_kerberos_enum(v, lg):
         host = _require(v, "host", lg, t("ui.host"))
         domain = _require(v, "domain", lg, t("ui.domain"))
-        users = _require(v, "users", lg, t("modules.network_attacks.users"))
-        if host and domain and users: E.kerberos_enum(host, domain, users, lg)
+        users_raw = _require(v, "users", lg, t("modules.network_attacks.users"))
+        if host and domain and users_raw:
+            users_list = [u.strip() for u in users_raw.replace(",", "\n").split("\n") if u.strip()]
+            if users_list:
+                E.kerberos_enum(host, domain, users_list, lg)
 
     panel.add(ToolCard(
         panel, icon="🎟️", title=t("modules.network_attacks.kerberos_enum"),

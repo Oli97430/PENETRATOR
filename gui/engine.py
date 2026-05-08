@@ -2464,7 +2464,12 @@ def websocket_fuzz(url: str, log: Logger) -> list[dict]:
         return []
 
     if not url.startswith(("ws://", "wss://")):
-        url = "ws://" + url.lstrip("htps:/")
+        # Strip http(s):// prefix properly, then prepend ws://
+        for prefix in ("https://", "http://"):
+            if url.startswith(prefix):
+                url = url[len(prefix):]
+                break
+        url = "ws://" + url
     log(f"[*] WebSocket fuzz on {url} ({len(WS_FUZZ_PAYLOADS)} payloads)", "cyan")
     findings: list[dict] = []
 
@@ -2598,16 +2603,19 @@ def ipv6_scan(subnet: str, log: Logger) -> list[dict]:
         if _should_stop():
             break
         for port in (80, 443, 22, 445):
+            sock = None
             try:
                 sock = _socket.socket(_socket.AF_INET6, _socket.SOCK_STREAM)
                 sock.settimeout(2)
                 sock.connect((addr, port))
-                sock.close()
                 log(f"[+] {addr} — port {port} open", "ok")
                 hosts_found.append({"address": addr, "port": port})
                 break
             except OSError:
                 pass
+            finally:
+                if sock:
+                    sock.close()
 
     log(f"[*] {len(hosts_found)} IPv6 host(s) responded", "cyan")
     return hosts_found
@@ -2674,13 +2682,13 @@ def dns_axfr(domain: str, log: Logger) -> list[str]:
             query = txid + b"\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00"
             query += qname + b"\x00\xfc\x00\x01"  # AXFR, IN
             length = _struct.pack("!H", len(query))
+            sock = None
             try:
                 sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
                 sock.settimeout(10)
                 sock.connect((ns_ip, 53))
                 sock.sendall(length + query)
                 resp = sock.recv(4096)
-                sock.close()
                 if len(resp) > 14:
                     log(f"[+] Received {len(resp)} bytes — zone transfer may be possible", "warn")
                     records.append(f"raw_response_{len(resp)}_bytes")
@@ -2688,6 +2696,9 @@ def dns_axfr(domain: str, log: Logger) -> list[str]:
                     log("[-] Zone transfer refused", "ok")
             except OSError as exc:
                 log(f"[-] {exc}", "muted")
+            finally:
+                if sock:
+                    sock.close()
 
     if not records:
         log("[+] Zone transfer refused on all nameservers (good)", "ok")
@@ -3087,6 +3098,8 @@ def cipher_suite_grade(host: str, port: int, log: Logger) -> dict:
 
     results: dict = {"host": host, "port": port, "ciphers": [], "grade": "?"}
 
+    sock = None
+    ssock = None
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
@@ -3096,10 +3109,14 @@ def cipher_suite_grade(host: str, port: int, log: Logger) -> dict:
         ssock = ctx.wrap_socket(sock, server_hostname=host)
         negotiated = ssock.cipher()
         all_ciphers = ctx.get_ciphers()
-        ssock.close()
     except Exception as exc:
         log(f"[-] {exc}", "err")
         return results
+    finally:
+        if ssock:
+            ssock.close()
+        elif sock:
+            sock.close()
 
     log(f"  Negotiated: {negotiated[0]} ({negotiated[2]} bits)", "info")
     results["negotiated"] = {"name": negotiated[0], "protocol": negotiated[1],
@@ -3212,7 +3229,9 @@ def rsa_key_analyze(key_text: str, log: Logger) -> dict:
         if bit_length <= 512:
             log("  Attempting Fermat factorization...", "info")
             a = math.isqrt(n) + 1
-            for _ in range(100000):
+            for i in range(100000):
+                if i % 10000 == 0 and _should_stop():
+                    break
                 b2 = a * a - n
                 b = math.isqrt(b2)
                 if b * b == b2:
@@ -3539,6 +3558,7 @@ def ldap_anonymous_check(host: str, port: int, log: Logger) -> dict:
     except ImportError:
         # Fallback: raw socket
         log("[!] ldap3 not installed — basic TCP probe only", "warn")
+        sock = None
         try:
             sock = _socket.create_connection((host, port), timeout=10)
             # Send minimal LDAP bind request (anonymous)
@@ -3548,7 +3568,6 @@ def ldap_anonymous_check(host: str, port: int, log: Logger) -> dict:
             sock.sendall(bind_request)
             sock.settimeout(5)
             resp = sock.recv(1024)
-            sock.close()
             if resp and b"\x61" in resp[:5]:
                 # Check result code
                 if b"\x0a\x01\x00" in resp:
@@ -3560,6 +3579,9 @@ def ldap_anonymous_check(host: str, port: int, log: Logger) -> dict:
                 log("[-] No valid LDAP response", "muted")
         except OSError as exc:
             log(f"[-] {exc}", "err")
+        finally:
+            if sock:
+                sock.close()
     except Exception as exc:
         log(f"[-] {exc}", "err")
 
@@ -3581,15 +3603,24 @@ def smb_enum(host: str, log: Logger) -> list[dict]:
             ["net", "view", f"\\\\{host}", "/all"],
             capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
+            in_shares = False
             for line in result.stdout.splitlines():
-                line = line.strip()
-                if line and not line.startswith("-") and "Share name" not in line:
-                    parts = line.split()
-                    if parts:
-                        share_name = parts[0]
-                        share_type = parts[1] if len(parts) > 1 else "?"
-                        log(f"[+] \\\\{host}\\{share_name} ({share_type})", "ok")
-                        shares.append({"name": share_name, "type": share_type})
+                stripped = line.strip()
+                # Skip header/footer lines
+                if not stripped or stripped.startswith("-"):
+                    if stripped.startswith("-"):
+                        in_shares = True  # separator marks start of share data
+                    continue
+                if not in_shares:
+                    continue
+                if stripped.lower().startswith("the command completed"):
+                    break
+                parts = stripped.split()
+                if parts and parts[0] not in ("Share", "Shared"):
+                    share_name = parts[0]
+                    share_type = parts[1] if len(parts) > 1 else "?"
+                    log(f"[+] \\\\{host}\\{share_name} ({share_type})", "ok")
+                    shares.append({"name": share_name, "type": share_type})
         else:
             log(f"  net view failed: {result.stderr.strip()[:100]}", "muted")
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -5075,12 +5106,20 @@ def mqtt_test(broker: str, port: int, log: Logger) -> dict:
         results["topics"].append(topic)
 
     try:
-        client = mqtt.Client()
+        # paho-mqtt 2.x requires CallbackAPIVersion; fall back for 1.x
+        try:
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
+        except (AttributeError, TypeError):
+            client = mqtt.Client()
         client.on_connect = on_connect
         client.on_message = on_message
         client.connect(broker, port, keepalive=10)
         client.loop_start()
-        time.sleep(5)  # Listen for 5 seconds
+        # Wait up to 5 seconds, checking for cancellation
+        for _ in range(50):
+            if _should_stop():
+                break
+            time.sleep(0.1)
         client.loop_stop()
         client.disconnect()
     except Exception as exc:
@@ -5103,6 +5142,11 @@ def firmware_strings(file_path: str, min_length: int, log: Logger) -> dict:
     path = Path(file_path)
     if not path.is_file():
         log("[-] File not found", "err")
+        return results
+
+    MAX_SIZE = 100 * 1024 * 1024  # 100 MB safety cap
+    if path.stat().st_size > MAX_SIZE:
+        log(f"[-] File too large ({path.stat().st_size // (1024*1024)} MB). Max {MAX_SIZE // (1024*1024)} MB", "err")
         return results
 
     try:
@@ -5165,6 +5209,7 @@ def upnp_scan(log: Logger) -> list[dict]:
         "\r\n"
     ).encode()
 
+    sock = None
     try:
         sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM, _socket.IPPROTO_UDP)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
@@ -5172,7 +5217,7 @@ def upnp_scan(log: Logger) -> list[dict]:
         sock.sendto(ssdp_request, ("239.255.255.250", 1900))
 
         seen: set[str] = set()
-        while True:
+        while not _should_stop():
             try:
                 data, addr = sock.recvfrom(4096)
                 text = data.decode("utf-8", errors="replace")
@@ -5193,9 +5238,11 @@ def upnp_scan(log: Logger) -> list[dict]:
                         log(f"    Location: {location}", "info")
             except _socket.timeout:
                 break
-        sock.close()
     except OSError as exc:
         log(f"[-] {exc}", "err")
+    finally:
+        if sock:
+            sock.close()
 
     log(f"[*] {len(devices)} UPnP device(s) found", "cyan")
     return devices
@@ -5364,8 +5411,24 @@ def yara_scan(file_path: str, rules_path: str, log: Logger) -> list[dict]:
         results = rules.match(file_path)
         for match in results:
             log(f"[+] MATCH: {match.rule} (tags: {', '.join(match.tags) or 'none'})", "err")
+            # yara-python >= 4.x uses StringMatchInstance objects; < 4.x uses tuples
+            str_info: list = []
+            for s in match.strings[:5]:
+                try:
+                    # yara-python 4.x: s.identifier, s.instances[0].offset, s.instances[0].matched_data
+                    ident = getattr(s, "identifier", None) or (s[1] if isinstance(s, tuple) else str(s))
+                    if hasattr(s, "instances") and s.instances:
+                        inst = s.instances[0]
+                        str_info.append((getattr(inst, "offset", 0), ident,
+                                         bytes(getattr(inst, "matched_data", b""))[:50]))
+                    elif isinstance(s, tuple):
+                        str_info.append((s[0], s[1], s[2][:50]))
+                    else:
+                        str_info.append((0, str(s), b""))
+                except Exception:
+                    str_info.append((0, str(s), b""))
             matches.append({"rule": match.rule, "tags": match.tags,
-                            "strings": [(s[0], s[1], s[2][:50]) for s in match.strings[:5]]})
+                            "strings": str_info})
     except Exception as exc:
         log(f"[-] Scan error: {exc}", "err")
 
@@ -5531,6 +5594,8 @@ def pci_dss_check(target: str, log: Logger) -> dict:
     # Check 1: TLS version
     import ssl
     import socket as _socket
+    sock = None
+    ssock = None
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
@@ -5539,7 +5604,6 @@ def pci_dss_check(target: str, log: Logger) -> dict:
         sock = _socket.create_connection((host, 443), timeout=10)
         ssock = ctx.wrap_socket(sock, server_hostname=host)
         version = ssock.version()
-        ssock.close()
         passed = version in ("TLSv1.2", "TLSv1.3")
         results["checks"].append({"name": "TLS 1.2+", "passed": passed,
                                    "detail": version})
@@ -5548,6 +5612,11 @@ def pci_dss_check(target: str, log: Logger) -> dict:
         results["checks"].append({"name": "TLS 1.2+", "passed": False,
                                    "detail": str(exc)})
         log(f"  ✗ TLS check failed: {exc}", "err")
+    finally:
+        if ssock:
+            ssock.close()
+        elif sock:
+            sock.close()
 
     # Check 2: Security headers
     try:

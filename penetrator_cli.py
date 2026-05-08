@@ -30,6 +30,7 @@ from rich.table import Table
 from core.banner import show_banner, VERSION
 from core.i18n import I18n, t
 from core.menu import Menu, MenuItem
+from core.cli_bridge import cli_log
 from core.utils import ask_input, pause, print_error, print_info, print_success
 
 from modules import (
@@ -113,12 +114,6 @@ def build_settings_menu(parent: Menu) -> Menu:
     return menu
 
 
-def cli_log(msg: str, style: str = "info") -> None:
-    """Simple logger for CLI-based engine calls."""
-    style_map = {"ok": "green", "err": "red", "warn": "yellow",
-                 "cyan": "cyan", "accent": "red", "muted": "dim"}
-    rich_style = style_map.get(style, "white")
-    console.print(f"[{rich_style}]{msg}[/]")
 
 
 def _run_cli_automation(root: Menu) -> None:
