@@ -66,7 +66,18 @@
     "warning_legal": "仅测试您获得授权的系统。",
     "continue_confirm": "是否继续?",
     "param": "参数",
-    "subnet": "子网 (例如 fe80::/64)"
+    "subnet": "子网 (例如 fe80::/64)",
+    "cvss_vector": "CVSS 向量",
+    "profile_name": "配置名称",
+    "scope_target": "目标模式",
+    "in_scope": "在范围内",
+    "sarif_path": "输出路径 (.sarif)",
+    "public_key": "公钥 (PEM)",
+    "auth_url": "授权 URL",
+    "redirect_uri": "重定向 URI",
+    "wordlist": "字典",
+    "param_name": "参数名",
+    "output_path": "输出路径"
   },
   "menu": {
     "main": {
@@ -197,7 +208,13 @@
       "arp_detect": "ARP 欺骗检测器",
       "arp_detect_desc": "检测本地网络中的 ARP 欺骗冲突",
       "arp_spoof_detect": "ARP 欺骗检测器",
-      "arp_spoof_detect_desc": "检测本地网络中的 ARP 欺骗冲突"
+      "arp_spoof_detect_desc": "检测本地网络中的 ARP 欺骗冲突",
+      "subdomain_perm": "子域名排列组合",
+      "subdomain_perm_desc": "altdns 风格的子域名排列扫描",
+      "vhost_discover": "虚拟主机发现",
+      "vhost_discover_desc": "暴力枚举 Host 头以发现隐藏的虚拟主机",
+      "dns_rebinding": "DNS 重绑定检测",
+      "dns_rebinding_desc": "检查域名是否解析到内网 IP"
     },
     "wordlist": {
       "title": "字典生成器",
@@ -290,7 +307,28 @@
       "request_count": "请求数量",
       "websocket_fuzz": "WebSocket 模糊测试",
       "websocket_fuzz_desc": "向 WebSocket 端点发送模糊载荷",
-      "count": "请求数量"
+      "count": "请求数量",
+      "csrf_analyze": "CSRF 令牌分析器",
+      "csrf_analyze_desc": "分析 Web 表单的 CSRF 防护机制",
+      "cookie_audit": "Cookie 安全审计",
+      "cookie_audit_desc": "审计 Cookie 的 Secure/HttpOnly/SameSite 属性",
+      "js_endpoint_extract": "JS 端点提取器",
+      "js_endpoint_extract_desc": "从 JavaScript 文件中提取 API 端点",
+      "param_discovery": "参数发现",
+      "param_discovery_desc": "暴力枚举隐藏的 GET/POST 参数",
+      "tech_fingerprint": "技术指纹识别",
+      "tech_fingerprint_desc": "Wappalyzer 风格的 Web 技术检测",
+      "http2_smuggling": "HTTP/2 请求走私",
+      "http2_smuggling_desc": "测试 H2.CL / H2.TE 请求不同步",
+      "ssti_scan": "SSTI 扫描器",
+      "ssti_scan_desc": "服务端模板注入检测",
+      "insecure_deser": "不安全的反序列化",
+      "insecure_deser_desc": "测试 Java/PHP/Python/Node 反序列化漏洞",
+      "prototype_pollution": "原型污染",
+      "prototype_pollution_desc": "测试 __proto__ / constructor.prototype 注入",
+      "auth_url": "授权 URL",
+      "redirect_uri": "重定向 URI",
+      "ssti_param": "参数名"
     },
     "password_tools": {
       "title": "密码工具",
@@ -346,7 +384,9 @@
       "payload_type": "载荷类型",
       "payload_saved": "已生成 {count} 个载荷",
       "testing": "测试参数: {param}",
-      "reflected": "[+] 载荷被反射: {payload}"
+      "reflected": "[+] 载荷被反射: {payload}",
+      "prototype_pollution": "原型污染扫描器",
+      "prototype_pollution_desc": "测试 __proto__ / constructor.prototype 注入"
     },
     "reverse": {
       "title": "逆向工程",
@@ -448,7 +488,17 @@
       "mass_assignment": "批量赋值",
       "mass_assignment_desc": "测试是否接受 role/admin 等额外字段",
       "token": "有效令牌 (可选)",
-      "count": "请求数量"
+      "count": "请求数量",
+      "jwt_none_attack": "JWT None 算法",
+      "jwt_none_attack_desc": "测试 JWT alg:none 漏洞",
+      "jwt_key_confusion": "JWT 密钥混淆",
+      "jwt_key_confusion_desc": "RS256 转 HS256 密钥混淆攻击",
+      "oauth2_test": "OAuth2 流程测试器",
+      "oauth2_test_desc": "测试 OAuth2 中的 redirect_uri 篡改",
+      "auth_url": "授权 URL",
+      "jwt_token": "JWT 令牌",
+      "public_key": "公钥 (PEM)",
+      "redirect_uri": "重定向 URI"
     },
     "crypto_tools": {
       "title": "加密与 TLS",
@@ -511,7 +561,22 @@
       "executive_report": "执行报告",
       "executive_report_desc": "生成渗透测试摘要报告",
       "risk_correlator": "风险关联器",
-      "risk_correlator_desc": "分析会话数据并生成风险评分"
+      "risk_correlator_desc": "分析会话数据并生成风险评分",
+      "scan_profile": "扫描配置",
+      "scan_profile_desc": "运行预定义扫描配置 (快速/标准/深度)",
+      "cvss_calc": "CVSS 计算器",
+      "cvss_calc_desc": "根据向量字符串计算 CVSS v3.1 基础评分",
+      "scope_mgmt": "范围管理",
+      "scope_mgmt_desc": "定义测试范围内/范围外的目标",
+      "sarif_export": "SARIF 导出",
+      "sarif_export_desc": "以 SARIF 格式导出发现, 用于 IDE 集成",
+      "db_init": "数据库",
+      "db_init_desc": "初始化或查询发现数据库",
+      "cvss_vector": "CVSS 向量字符串",
+      "db_path": "数据库路径",
+      "export_path": "导出路径",
+      "in_scope": "在范围内",
+      "profile": "配置"
     },
     "stealth": {
       "title": "隐匿与规避",

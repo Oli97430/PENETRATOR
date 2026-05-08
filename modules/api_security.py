@@ -46,6 +46,23 @@ def rate_limit_cli() -> None:
     pause()
 
 
+def jwt_none_cli() -> None:
+    token = ask_input(t("modules.api_security.jwt_token"))
+    if token:
+        E.jwt_none_attack(token, cli_log)
+    pause()
+
+
+def jwt_confusion_cli() -> None:
+    token = ask_input(t("modules.api_security.jwt_token"))
+    if not token:
+        return
+    pub_key = ask_input(t("modules.api_security.public_key"))
+    if pub_key:
+        E.jwt_key_confusion(token, pub_key, cli_log)
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.api_security.title", parent=parent)
     menu.add(MenuItem("modules.api_security.swagger_disc", swagger_cli,
@@ -56,4 +73,8 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       "modules.api_security.mass_assign_desc"))
     menu.add(MenuItem("modules.api_security.rate_limit", rate_limit_cli,
                       "modules.api_security.rate_limit_desc"))
+    menu.add(MenuItem("modules.api_security.jwt_none", jwt_none_cli,
+                      "modules.api_security.jwt_none_desc"))
+    menu.add(MenuItem("modules.api_security.jwt_confusion", jwt_confusion_cli,
+                      "modules.api_security.jwt_confusion_desc"))
     return menu

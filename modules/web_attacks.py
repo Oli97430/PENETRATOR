@@ -418,6 +418,67 @@ def async_buster_cli() -> None:
     pause()
 
 
+def csrf_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.csrf_analyze(url, cli_log)
+    pause()
+
+
+def cookie_audit_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.cookie_audit(url, cli_log)
+    pause()
+
+
+def oauth2_cli() -> None:
+    auth_url = ask_input(t("modules.web_attacks.auth_url"))
+    if not auth_url:
+        return
+    redirect_uri = ask_input(t("modules.web_attacks.redirect_uri"))
+    if redirect_uri:
+        E.oauth2_test(auth_url, redirect_uri, cli_log)
+    pause()
+
+
+def dns_rebinding_cli() -> None:
+    domain = ask_input(t("ui.domain"))
+    if domain:
+        E.dns_rebinding_check(domain, cli_log)
+    pause()
+
+
+def http2_smuggling_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.http2_smuggling(url, cli_log)
+    pause()
+
+
+def proto_pollution_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.prototype_pollution_scan(url, cli_log)
+    pause()
+
+
+def ssti_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    param = ask_input(t("modules.web_attacks.ssti_param"), default="")
+    E.ssti_scan(url, param, cli_log)
+    pause()
+
+
+def deser_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.insecure_deser_test(url, cli_log)
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.web_attacks.title", parent=parent)
     menu.add(MenuItem("modules.web_attacks.dir_buster", dir_buster,
@@ -462,4 +523,20 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       "modules.web_attacks.ws_fuzz_desc"))
     menu.add(MenuItem("modules.web_attacks.lfi_scan", lfi_cli,
                       "modules.web_attacks.lfi_scan_desc"))
+    menu.add(MenuItem("modules.web_attacks.csrf_analyze", csrf_cli,
+                      "modules.web_attacks.csrf_analyze_desc"))
+    menu.add(MenuItem("modules.web_attacks.cookie_audit", cookie_audit_cli,
+                      "modules.web_attacks.cookie_audit_desc"))
+    menu.add(MenuItem("modules.web_attacks.oauth2_test", oauth2_cli,
+                      "modules.web_attacks.oauth2_test_desc"))
+    menu.add(MenuItem("modules.web_attacks.dns_rebinding", dns_rebinding_cli,
+                      "modules.web_attacks.dns_rebinding_desc"))
+    menu.add(MenuItem("modules.web_attacks.http2_smuggling", http2_smuggling_cli,
+                      "modules.web_attacks.http2_smuggling_desc"))
+    menu.add(MenuItem("modules.web_attacks.proto_pollution", proto_pollution_cli,
+                      "modules.web_attacks.proto_pollution_desc"))
+    menu.add(MenuItem("modules.web_attacks.ssti_scan", ssti_cli,
+                      "modules.web_attacks.ssti_scan_desc"))
+    menu.add(MenuItem("modules.web_attacks.insecure_deser", deser_cli,
+                      "modules.web_attacks.insecure_deser_desc"))
     return menu

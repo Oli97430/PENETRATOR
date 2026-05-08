@@ -66,7 +66,18 @@
     "warning_legal": "Only test systems you are authorized to test.",
     "continue_confirm": "Do you want to continue?",
     "param": "Parameter",
-    "subnet": "Subnet (e.g. fe80::/64)"
+    "subnet": "Subnet (e.g. fe80::/64)",
+    "cvss_vector": "CVSS Vector",
+    "profile_name": "Profile",
+    "scope_target": "Target pattern",
+    "in_scope": "In scope",
+    "sarif_path": "Output path (.sarif)",
+    "public_key": "Public key (PEM)",
+    "auth_url": "Authorization URL",
+    "redirect_uri": "Redirect URI",
+    "wordlist": "Wordlist",
+    "param_name": "Parameter name",
+    "output_path": "Output Path"
   },
   "menu": {
     "main": {
@@ -197,7 +208,13 @@
       "arp_detect": "ARP Spoof Detector",
       "arp_detect_desc": "Detect ARP spoofing conflicts in local network",
       "arp_spoof_detect": "ARP Spoof Detector",
-      "arp_spoof_detect_desc": "Detect ARP spoofing conflicts in local network"
+      "arp_spoof_detect_desc": "Detect ARP spoofing conflicts in local network",
+      "subdomain_perm": "Subdomain Permutation",
+      "subdomain_perm_desc": "altdns-style subdomain permutation scan",
+      "vhost_discover": "Virtual Host Discovery",
+      "vhost_discover_desc": "Brute-force Host header for hidden vhosts",
+      "dns_rebinding": "DNS Rebinding Check",
+      "dns_rebinding_desc": "Check if domain resolves to private IPs"
     },
     "wordlist": {
       "title": "Wordlist Generator",
@@ -290,7 +307,28 @@
       "request_count": "Number of requests",
       "websocket_fuzz": "WebSocket Fuzzer",
       "websocket_fuzz_desc": "Send fuzz payloads to a WebSocket endpoint",
-      "count": "Number of requests"
+      "count": "Number of requests",
+      "csrf_analyze": "CSRF Token Analyzer",
+      "csrf_analyze_desc": "Analyze CSRF protections on web forms",
+      "cookie_audit": "Cookie Security Audit",
+      "cookie_audit_desc": "Audit cookie Secure/HttpOnly/SameSite flags",
+      "js_endpoint_extract": "JS Endpoint Extractor",
+      "js_endpoint_extract_desc": "Extract API endpoints from JavaScript files",
+      "param_discovery": "Parameter Discovery",
+      "param_discovery_desc": "Brute-force hidden GET/POST parameters",
+      "tech_fingerprint": "Technology Fingerprinting",
+      "tech_fingerprint_desc": "Wappalyzer-style web technology detection",
+      "http2_smuggling": "HTTP/2 Smuggling",
+      "http2_smuggling_desc": "Test for H2.CL / H2.TE request desync",
+      "ssti_scan": "SSTI Scanner",
+      "ssti_scan_desc": "Server-Side Template Injection detection",
+      "insecure_deser": "Insecure Deserialization",
+      "insecure_deser_desc": "Test for Java/PHP/Python/Node deserialization flaws",
+      "prototype_pollution": "Prototype Pollution",
+      "prototype_pollution_desc": "Test for __proto__ / constructor.prototype injection",
+      "auth_url": "Authorization URL",
+      "redirect_uri": "Redirect URI",
+      "ssti_param": "Parameter Name"
     },
     "password_tools": {
       "title": "Password Tools",
@@ -346,7 +384,9 @@
       "payload_type": "Payload type",
       "payload_saved": "Generated {count} payloads",
       "testing": "Testing parameter: {param}",
-      "reflected": "[+] Payload reflected: {payload}"
+      "reflected": "[+] Payload reflected: {payload}",
+      "prototype_pollution": "Prototype Pollution Scanner",
+      "prototype_pollution_desc": "Test for __proto__ / constructor.prototype injection"
     },
     "reverse": {
       "title": "Reverse Engineering",
@@ -448,7 +488,17 @@
       "mass_assignment": "Mass Assignment",
       "mass_assignment_desc": "Test if extra fields like role/admin are accepted",
       "token": "Valid token (optional)",
-      "count": "Number of requests"
+      "count": "Number of requests",
+      "jwt_none_attack": "JWT None Algorithm",
+      "jwt_none_attack_desc": "Test JWT alg:none vulnerability",
+      "jwt_key_confusion": "JWT Key Confusion",
+      "jwt_key_confusion_desc": "RS256->HS256 key confusion attack",
+      "oauth2_test": "OAuth2 Flow Tester",
+      "oauth2_test_desc": "Test redirect_uri manipulation in OAuth2",
+      "auth_url": "Authorization URL",
+      "jwt_token": "JWT Token",
+      "public_key": "Public Key (PEM)",
+      "redirect_uri": "Redirect URI"
     },
     "crypto_tools": {
       "title": "Crypto & TLS",
@@ -511,7 +561,22 @@
       "executive_report": "Executive Report",
       "executive_report_desc": "Generate a penetration test summary report",
       "risk_correlator": "Risk Correlator",
-      "risk_correlator_desc": "Analyze session data and produce a risk score"
+      "risk_correlator_desc": "Analyze session data and produce a risk score",
+      "scan_profile": "Scan Profile",
+      "scan_profile_desc": "Run predefined scan profiles (Quick/Standard/Deep)",
+      "cvss_calc": "CVSS Calculator",
+      "cvss_calc_desc": "Calculate CVSS v3.1 base score from vector string",
+      "scope_mgmt": "Scope Management",
+      "scope_mgmt_desc": "Define in-scope/out-of-scope targets",
+      "sarif_export": "SARIF Export",
+      "sarif_export_desc": "Export findings in SARIF format for IDE integration",
+      "db_init": "Database",
+      "db_init_desc": "Initialize or query the findings database",
+      "cvss_vector": "CVSS Vector String",
+      "db_path": "Database Path",
+      "export_path": "Export Path",
+      "in_scope": "In Scope",
+      "profile": "Profile"
     },
     "stealth": {
       "title": "Stealth & Evasion",

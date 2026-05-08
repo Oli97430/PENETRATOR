@@ -1,0 +1,10 @@
+services:
+  penetrator:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      PENETRATOR_API_KEY: "${PENETRATOR_API_KEY:-changeme}"
+    restart: unless-stopped

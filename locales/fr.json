@@ -66,7 +66,18 @@
     "warning_legal": "Ne testez que les systèmes pour lesquels vous êtes autorisé.",
     "continue_confirm": "Voulez-vous continuer ?",
     "param": "Paramètre",
-    "subnet": "Sous-réseau (ex. fe80::/64)"
+    "subnet": "Sous-réseau (ex. fe80::/64)",
+    "cvss_vector": "Vecteur CVSS",
+    "profile_name": "Profil",
+    "scope_target": "Motif de cible",
+    "in_scope": "Dans le périmètre",
+    "sarif_path": "Chemin de sortie (.sarif)",
+    "public_key": "Clé publique (PEM)",
+    "auth_url": "URL d'autorisation",
+    "redirect_uri": "URI de redirection",
+    "wordlist": "Liste de mots",
+    "param_name": "Nom du paramètre",
+    "output_path": "Chemin de sortie"
   },
   "menu": {
     "main": {
@@ -197,7 +208,13 @@
       "arp_detect": "Détecteur de spoofing ARP",
       "arp_detect_desc": "Détecter les conflits d'usurpation ARP sur le réseau local",
       "arp_spoof_detect": "Détecteur de spoofing ARP",
-      "arp_spoof_detect_desc": "Détecter les conflits d'usurpation ARP sur le réseau local"
+      "arp_spoof_detect_desc": "Détecter les conflits d'usurpation ARP sur le réseau local",
+      "subdomain_perm": "Permutation de sous-domaines",
+      "subdomain_perm_desc": "Scan de permutation de sous-domaines de type altdns",
+      "vhost_discover": "Découverte d'hôtes virtuels",
+      "vhost_discover_desc": "Brute-force de l'en-tête Host pour les vhosts cachés",
+      "dns_rebinding": "Vérification DNS Rebinding",
+      "dns_rebinding_desc": "Vérifier si le domaine résout vers des IP privées"
     },
     "wordlist": {
       "title": "Générateur de listes",
@@ -290,7 +307,28 @@
       "request_count": "Nombre de requêtes",
       "websocket_fuzz": "Fuzzer WebSocket",
       "websocket_fuzz_desc": "Envoyer des charges de fuzz à un endpoint WebSocket",
-      "count": "Nombre de requêtes"
+      "count": "Nombre de requêtes",
+      "csrf_analyze": "Analyseur de jetons CSRF",
+      "csrf_analyze_desc": "Analyser les protections CSRF des formulaires web",
+      "cookie_audit": "Audit de sécurité des cookies",
+      "cookie_audit_desc": "Vérifier les attributs Secure/HttpOnly/SameSite des cookies",
+      "js_endpoint_extract": "Extracteur d'endpoints JS",
+      "js_endpoint_extract_desc": "Extraire les endpoints API depuis les fichiers JavaScript",
+      "param_discovery": "Découverte de paramètres",
+      "param_discovery_desc": "Brute-force des paramètres GET/POST cachés",
+      "tech_fingerprint": "Empreinte technologique",
+      "tech_fingerprint_desc": "Détection de technologies web de type Wappalyzer",
+      "http2_smuggling": "Smuggling HTTP/2",
+      "http2_smuggling_desc": "Tester la désynchronisation H2.CL / H2.TE",
+      "ssti_scan": "Scanner SSTI",
+      "ssti_scan_desc": "Détection d'injection de template côté serveur",
+      "insecure_deser": "Désérialisation non sécurisée",
+      "insecure_deser_desc": "Tester les failles de désérialisation Java/PHP/Python/Node",
+      "prototype_pollution": "Pollution de prototype",
+      "prototype_pollution_desc": "Tester l'injection __proto__ / constructor.prototype",
+      "auth_url": "URL d'autorisation",
+      "redirect_uri": "URI de redirection",
+      "ssti_param": "Nom du parametre"
     },
     "password_tools": {
       "title": "Outils de mots de passe",
@@ -346,7 +384,9 @@
       "payload_type": "Type de payload",
       "payload_saved": "{count} payloads générés",
       "testing": "Test du paramètre : {param}",
-      "reflected": "[+] Payload réfléchi : {payload}"
+      "reflected": "[+] Payload réfléchi : {payload}",
+      "prototype_pollution": "Scanner de pollution de prototype",
+      "prototype_pollution_desc": "Tester l'injection __proto__ / constructor.prototype"
     },
     "reverse": {
       "title": "Rétro-ingénierie",
@@ -448,7 +488,17 @@
       "mass_assignment": "Assignation de masse",
       "mass_assignment_desc": "Tester si des champs supplémentaires comme role/admin sont acceptés",
       "token": "Jeton valide (optionnel)",
-      "count": "Nombre de requêtes"
+      "count": "Nombre de requêtes",
+      "jwt_none_attack": "JWT algorithme None",
+      "jwt_none_attack_desc": "Tester la vulnérabilité JWT alg:none",
+      "jwt_key_confusion": "Confusion de clé JWT",
+      "jwt_key_confusion_desc": "Attaque par confusion de clé RS256->HS256",
+      "oauth2_test": "Testeur de flux OAuth2",
+      "oauth2_test_desc": "Tester la manipulation de redirect_uri dans OAuth2",
+      "auth_url": "URL d'autorisation",
+      "jwt_token": "Jeton JWT",
+      "public_key": "Cle publique (PEM)",
+      "redirect_uri": "URI de redirection"
     },
     "crypto_tools": {
       "title": "Crypto & TLS",
@@ -511,7 +561,22 @@
       "executive_report": "Rapport exécutif",
       "executive_report_desc": "Générer un rapport synthétique de test d'intrusion",
       "risk_correlator": "Corrélateur de risques",
-      "risk_correlator_desc": "Analyser les données de session et produire un score de risque"
+      "risk_correlator_desc": "Analyser les données de session et produire un score de risque",
+      "scan_profile": "Profil de scan",
+      "scan_profile_desc": "Exécuter des profils de scan prédéfinis (Rapide/Standard/Approfondi)",
+      "cvss_calc": "Calculateur CVSS",
+      "cvss_calc_desc": "Calculer le score CVSS v3.1 à partir d'un vecteur",
+      "scope_mgmt": "Gestion du périmètre",
+      "scope_mgmt_desc": "Définir les cibles dans/hors du périmètre",
+      "sarif_export": "Export SARIF",
+      "sarif_export_desc": "Exporter les résultats au format SARIF pour intégration IDE",
+      "db_init": "Base de données",
+      "db_init_desc": "Initialiser ou interroger la base de données de résultats",
+      "cvss_vector": "Chaîne de vecteur CVSS",
+      "db_path": "Chemin de la base de données",
+      "export_path": "Chemin d'exportation",
+      "in_scope": "Dans le périmètre",
+      "profile": "Profil"
     },
     "stealth": {
       "title": "Discrétion & Évasion",

@@ -132,6 +132,25 @@ def _run_cli_automation(root: Menu) -> None:
             cli_log) or pause())))
     menu.add(MenuItem("modules.automation.executive_report", lambda: (
         _engine.executive_report(ask_input(t("ui.target")), cli_log) or pause())))
+    menu.add(MenuItem("modules.automation.scan_profile", lambda: (
+        _engine.run_profile(
+            ask_input(t("ui.profile_name") + " [quick/standard/deep]") or "quick",
+            ask_input(t("ui.target")),
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.automation.cvss_calc", lambda: (
+        _engine.cvss_calculate(
+            ask_input(t("modules.automation.cvss_vector")),
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.automation.scope_mgmt", lambda: (
+        _engine.scope_add(
+            ask_input(t("ui.target")),
+            True,
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.automation.sarif_export", lambda: (
+        _engine.sarif_export(
+            [],
+            ask_input(t("ui.output_path")),
+            cli_log) or pause())))
     menu.run()
 
 

@@ -446,6 +446,45 @@ def arp_detect_cli() -> None:
     pause()
 
 
+def subdomain_perm_cli() -> None:
+    domain = ask_input(t("ui.domain"))
+    if domain:
+        E.subdomain_permutation(domain, cli_log)
+    pause()
+
+
+def vhost_cli() -> None:
+    ip = ask_input(t("ui.host"))
+    if not ip:
+        return
+    wordlist = ask_input(t("ui.wordlist_path"), default="")
+    E.vhost_discover(ip, wordlist or [], cli_log)
+    pause()
+
+
+def js_endpoint_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.js_endpoint_extract(url, cli_log)
+    pause()
+
+
+def param_discovery_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if not url:
+        return
+    wordlist = ask_input(t("ui.wordlist_path"), default="")
+    E.param_discovery(url, wordlist or None, cli_log)
+    pause()
+
+
+def tech_fingerprint_cli() -> None:
+    url = ask_input(t("ui.url"))
+    if url:
+        E.tech_fingerprint(url, cli_log)
+    pause()
+
+
 def build_menu(parent: Menu | None = None) -> Menu:
     menu = Menu(title_key="modules.info_gathering.title", parent=parent)
     menu.add(MenuItem("modules.info_gathering.port_scan",
@@ -488,4 +527,14 @@ def build_menu(parent: Menu | None = None) -> Menu:
                       snmp_walk_cli, "modules.info_gathering.snmp_walk_desc"))
     menu.add(MenuItem("modules.info_gathering.arp_detect",
                       arp_detect_cli, "modules.info_gathering.arp_detect_desc"))
+    menu.add(MenuItem("modules.info_gathering.subdomain_perm",
+                      subdomain_perm_cli, "modules.info_gathering.subdomain_perm_desc"))
+    menu.add(MenuItem("modules.info_gathering.vhost_discover",
+                      vhost_cli, "modules.info_gathering.vhost_discover_desc"))
+    menu.add(MenuItem("modules.info_gathering.js_endpoints",
+                      js_endpoint_cli, "modules.info_gathering.js_endpoints_desc"))
+    menu.add(MenuItem("modules.info_gathering.param_discovery",
+                      param_discovery_cli, "modules.info_gathering.param_discovery_desc"))
+    menu.add(MenuItem("modules.info_gathering.tech_fingerprint",
+                      tech_fingerprint_cli, "modules.info_gathering.tech_fingerprint_desc"))
     return menu

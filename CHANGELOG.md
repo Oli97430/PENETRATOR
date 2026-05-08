@@ -7,6 +7,65 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-05-08
+
+### Added — Phase 11: Advanced Tools & Architecture
+
+#### Security Tools (15 new)
+- **JWT None-Algorithm Attack** — forge tokens with `alg: none` (CVE-2015-9235)
+- **JWT Key Confusion** — RS256 → HS256 attack using public key as HMAC secret
+- **CSRF Token Analyzer** — audit form CSRF protections, SameSite cookies, custom headers
+- **Cookie Security Audit** — check Secure/HttpOnly/SameSite/Prefix attributes
+- **OAuth2 Redirect Tester** — test redirect_uri bypass variants
+- **Subdomain Permutation** — altdns-style permutation scanner
+- **Virtual Host Discovery** — brute-force Host header to find hidden vhosts
+- **JS Endpoint Extractor** — extract API endpoints from inline/external JS
+- **HTTP Parameter Discovery** — find hidden GET/POST parameters
+- **Technology Fingerprinting** — Wappalyzer-style detection (headers, HTML, cookies)
+- **DNS Rebinding Check** — detect domains resolving to private/internal IPs
+- **HTTP/2 Smuggling Detector** — CL/TE desync pattern probing
+- **Prototype Pollution Scanner** — client/server-side __proto__ injection testing
+- **SSTI Scanner** — Server-Side Template Injection across 10 engines
+- **Insecure Deserialization Tester** — Java/PHP/Python/Node/.NET payload detection
+
+#### Architecture Features (8 new)
+- **CVSS v3.1 Calculator** — full base score calculation from vector strings
+- **Scan Profiles** — predefined quick/standard/deep scanning profiles
+- **Scope Management** — in-scope/out-of-scope target rules via SQLite
+- **SARIF v2.1.0 Export** — standards-compliant security findings export
+- **SQLite Persistence** — sessions, findings, and scope stored in `data/penetrator.db`
+- **REST API** — FastAPI-based headless interface (15 endpoints + /health)
+- **Docker Support** — Dockerfile + docker-compose for containerized deployment
+- **PCI-DSS & CIS Benchmarks** — basic compliance checking
+
+### Fixed — Phase 11 Polish (20 bugs)
+
+#### HIGH severity (4)
+- `run_profile` now reads `"outputs"` key from `attack_chain` (was `"results"`)
+- `attack_chain` dispatcher expanded with 17 new step aliases for all profile step names
+- CVSS v3.1 Scope-Changed formula corrected: `(iss * 0.9731 - 0.02) ** 13` (was `(iss - 0.02) ** 15`)
+- `csrf_analyze` dead loop removed; SameSite cookie parsing no longer splits on date commas
+
+#### MEDIUM severity (7)
+- `session_set` added to 6 functions: jwt_none_attack, jwt_key_confusion, dns_rebinding_check, http2_smuggling, prototype_pollution_scan, insecure_deser_test
+- JWT functions use `"forged"` flag (was misleading `"vulnerable"` unconditionally true)
+- `prototype_pollution_scan` JSON POST body now varies per payload type
+- Base64 URL-safe padding fixed: `(4 - len(s) % 4) % 4` (was adding 4 when already aligned)
+- `http2_smuggling` clarified as CL/TE desync probe via HTTP/1.1
+- Insecure deserialization Python pickle hex prefix corrected to valid opcode
+
+#### API / Infrastructure (5)
+- All 15 API endpoints wrapped with try/except → clean JSON error responses
+- SARIF endpoint restricted to `data/reports/` directory (prevents arbitrary file writes)
+- API port parsing documented; comma-separated ports now validated
+- Deprecated `@app.on_event("startup")` replaced with FastAPI lifespan context manager
+- `.dockerignore` created; Dockerfile removes redundant pip install
+- Global exception handler returns structured `{"error": ..., "type": ...}` JSON
+
+### Changed
+- VERSION bumped to 1.7.0
+- API version updated to 1.7.0
+
 ## [1.6.0] — 2026-05-03
 
 ### Added — Features (30 new — Automation, Stealth & Defense)

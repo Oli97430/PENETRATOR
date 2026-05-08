@@ -478,6 +478,47 @@ def build_info_gathering(master, runner: TaskRunner, log: LogConsole):
         on_run=run_arp_spoof_detect, runner=runner, log=log, category_color=color,
     ))
 
+    # Subdomain Permutation
+    def run_subdomain_perm(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.subdomain_permutation(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔀", title=t("modules.info_gathering.subdomain_perm"),
+        description=t("modules.info_gathering.subdomain_perm_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_subdomain_perm, runner=runner, log=log, category_color=color,
+    ))
+
+    # Virtual Host Discovery
+    def run_vhost_discover(v, lg):
+        ip = _require(v, "ip", lg, t("ui.target"))
+        wordlist = _require(v, "wordlist", lg, t("ui.wordlist"))
+        if ip and wordlist: E.vhost_discover(ip, wordlist, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🏠", title=t("modules.info_gathering.vhost_discover"),
+        description=t("modules.info_gathering.vhost_discover_desc"),
+        fields=[
+            FormField("ip", t("ui.target"), placeholder="10.0.0.1"),
+            FormField("wordlist", t("ui.wordlist"), kind="textarea",
+                      placeholder="host1.example.com\nhost2.example.com"),
+        ],
+        on_run=run_vhost_discover, runner=runner, log=log, category_color=color,
+    ))
+
+    # DNS Rebinding Check
+    def run_dns_rebinding(v, lg):
+        domain = _require(v, "domain", lg, t("ui.domain"))
+        if domain: E.dns_rebinding_check(domain, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔄", title=t("modules.info_gathering.dns_rebinding"),
+        description=t("modules.info_gathering.dns_rebinding_desc"),
+        fields=[FormField("domain", t("ui.domain"), placeholder="example.com")],
+        on_run=run_dns_rebinding, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -983,6 +1024,113 @@ def build_web_attacks(master, runner: TaskRunner, log: LogConsole):
         on_run=run_lfi_scan, runner=runner, log=log, category_color=color,
     ))
 
+    # CSRF Analyzer
+    def run_csrf_analyze(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.csrf_analyze(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🛂", title=t("modules.web_attacks.csrf_analyze"),
+        description=t("modules.web_attacks.csrf_analyze_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com/form")],
+        on_run=run_csrf_analyze, runner=runner, log=log, category_color=color,
+    ))
+
+    # Cookie Audit
+    def run_cookie_audit(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.cookie_audit(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🍪", title=t("modules.web_attacks.cookie_audit"),
+        description=t("modules.web_attacks.cookie_audit_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com")],
+        on_run=run_cookie_audit, runner=runner, log=log, category_color=color,
+    ))
+
+    # JS Endpoint Extractor
+    def run_js_endpoint(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.js_endpoint_extract(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📜", title=t("modules.web_attacks.js_endpoint_extract"),
+        description=t("modules.web_attacks.js_endpoint_extract_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com")],
+        on_run=run_js_endpoint, runner=runner, log=log, category_color=color,
+    ))
+
+    # Parameter Discovery
+    def run_param_discovery(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if not url: return
+        wordlist = str(v.get("wordlist", "")).strip() or None
+        E.param_discovery(url, wordlist, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔎", title=t("modules.web_attacks.param_discovery"),
+        description=t("modules.web_attacks.param_discovery_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com/page"),
+            FormField("wordlist", t("modules.web_attacks.wordlist_path"),
+                      kind="file"),
+        ],
+        on_run=run_param_discovery, runner=runner, log=log, category_color=color,
+    ))
+
+    # Technology Fingerprint
+    def run_tech_fp(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.tech_fingerprint(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🖐️", title=t("modules.web_attacks.tech_fingerprint"),
+        description=t("modules.web_attacks.tech_fingerprint_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com")],
+        on_run=run_tech_fp, runner=runner, log=log, category_color=color,
+    ))
+
+    # HTTP/2 Smuggling
+    def run_h2_smuggling(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.http2_smuggling(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🚇", title=t("modules.web_attacks.http2_smuggling"),
+        description=t("modules.web_attacks.http2_smuggling_desc"),
+        fields=[FormField("url", t("ui.url"), placeholder="https://example.com")],
+        on_run=run_h2_smuggling, runner=runner, log=log, category_color=color,
+    ))
+
+    # SSTI Scanner
+    def run_ssti_scan(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        param = _require(v, "param", lg, t("ui.param"))
+        if url and param: E.ssti_scan(url, param, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🧩", title=t("modules.web_attacks.ssti_scan"),
+        description=t("modules.web_attacks.ssti_scan_desc"),
+        fields=[
+            FormField("url", t("ui.url"), placeholder="https://example.com/page"),
+            FormField("param", t("ui.param"), placeholder="name"),
+        ],
+        on_run=run_ssti_scan, runner=runner, log=log, category_color=color,
+    ))
+
+    # Insecure Deserialization
+    def run_insecure_deser(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.insecure_deser_test(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="💣", title=t("modules.web_attacks.insecure_deser"),
+        description=t("modules.web_attacks.insecure_deser_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com/api")],
+        on_run=run_insecure_deser, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -1237,6 +1385,19 @@ def build_xss_tools(master, runner: TaskRunner, log: LogConsole):
         fields=[FormField("payload", t("ui.payload"), kind="textarea",
                           default="<script>alert(1)</script>")],
         on_run=run_encode, runner=runner, log=log, category_color=color,
+    ))
+
+    # Prototype Pollution Scanner
+    def run_proto_pollution(v, lg):
+        url = _require(v, "url", lg, t("ui.url"))
+        if url: E.prototype_pollution_scan(url, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🧬", title=t("modules.xss_tools.prototype_pollution"),
+        description=t("modules.xss_tools.prototype_pollution_desc"),
+        fields=[FormField("url", t("ui.url"),
+                          placeholder="https://example.com/app")],
+        on_run=run_proto_pollution, runner=runner, log=log, category_color=color,
     ))
 
     return panel
@@ -1677,6 +1838,55 @@ def build_api_security(master, runner: TaskRunner, log: LogConsole):
         on_run=run_rate_limit, runner=runner, log=log, category_color=color,
     ))
 
+    # JWT None Attack
+    def run_jwt_none(v, lg):
+        token = _require(v, "token", lg, t("modules.api_security.token"))
+        if token: E.jwt_none_attack(token, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔑", title=t("modules.api_security.jwt_none_attack"),
+        description=t("modules.api_security.jwt_none_attack_desc"),
+        fields=[FormField("token", t("modules.api_security.token"),
+                          kind="textarea", placeholder="eyJhbGciOi...")],
+        on_run=run_jwt_none, runner=runner, log=log, category_color=color,
+    ))
+
+    # JWT Key Confusion
+    def run_jwt_key_confusion(v, lg):
+        token = _require(v, "token", lg, t("modules.api_security.token"))
+        pk = _require(v, "public_key", lg, t("modules.api_security.public_key"))
+        if token and pk: E.jwt_key_confusion(token, pk, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔐", title=t("modules.api_security.jwt_key_confusion"),
+        description=t("modules.api_security.jwt_key_confusion_desc"),
+        fields=[
+            FormField("token", t("modules.api_security.token"),
+                      kind="textarea", placeholder="eyJhbGciOi..."),
+            FormField("public_key", t("modules.api_security.public_key"),
+                      kind="textarea", placeholder="-----BEGIN PUBLIC KEY-----"),
+        ],
+        on_run=run_jwt_key_confusion, runner=runner, log=log, category_color=color,
+    ))
+
+    # OAuth2 Tester
+    def run_oauth2_test(v, lg):
+        auth_url = _require(v, "auth_url", lg, t("modules.api_security.auth_url"))
+        redir = _require(v, "redirect_uri", lg, t("modules.api_security.redirect_uri"))
+        if auth_url and redir: E.oauth2_test(auth_url, redir, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🔏", title=t("modules.api_security.oauth2_test"),
+        description=t("modules.api_security.oauth2_test_desc"),
+        fields=[
+            FormField("auth_url", t("modules.api_security.auth_url"),
+                      placeholder="https://provider.com/oauth/authorize"),
+            FormField("redirect_uri", t("modules.api_security.redirect_uri"),
+                      placeholder="https://app.com/callback"),
+        ],
+        on_run=run_oauth2_test, runner=runner, log=log, category_color=color,
+    ))
+
     return panel
 
 
@@ -1922,6 +2132,82 @@ def build_automation(master, runner: TaskRunner, log: LogConsole):
         description=t("modules.automation.executive_report_desc"),
         fields=[FormField("target", t("ui.target"), placeholder="example.com")],
         on_run=run_exec_report, runner=runner, log=log, category_color=color,
+    ))
+
+    # Scan Profile
+    def run_scan_profile(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        profile = str(v.get("profile", "standard"))
+        E.run_profile(profile, target, lg)
+
+    panel.add(ToolCard(
+        panel, icon="📋", title=t("modules.automation.scan_profile"),
+        description=t("modules.automation.scan_profile_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="example.com"),
+            FormField("profile", t("modules.automation.profile"),
+                      kind="combo", default="standard",
+                      options=["quick", "standard", "deep"]),
+        ],
+        on_run=run_scan_profile, runner=runner, log=log, category_color=color,
+    ))
+
+    # CVSS Calculator
+    def run_cvss_calc(v, lg):
+        vector = _require(v, "vector", lg, t("modules.automation.cvss_vector"))
+        if vector: E.cvss_calculate(vector, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🧮", title=t("modules.automation.cvss_calc"),
+        description=t("modules.automation.cvss_calc_desc"),
+        fields=[FormField("vector", t("modules.automation.cvss_vector"),
+                          placeholder="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")],
+        on_run=run_cvss_calc, runner=runner, log=log, category_color=color,
+    ))
+
+    # Scope Management
+    def run_scope_mgmt(v, lg):
+        target = _require(v, "target", lg, t("ui.target"))
+        if not target: return
+        in_scope = bool(v.get("in_scope", True))
+        E.scope_add(target, in_scope, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🎯", title=t("modules.automation.scope_mgmt"),
+        description=t("modules.automation.scope_mgmt_desc"),
+        fields=[
+            FormField("target", t("ui.target"), placeholder="*.example.com"),
+            FormField("in_scope", t("modules.automation.in_scope"),
+                      kind="check", default=True),
+        ],
+        on_run=run_scope_mgmt, runner=runner, log=log, category_color=color,
+    ))
+
+    # SARIF Export
+    def run_sarif_export(v, lg):
+        path = _require(v, "path", lg, t("modules.automation.export_path"))
+        if path: E.sarif_export(E.session_get("last_findings", []), path, lg)
+
+    panel.add(ToolCard(
+        panel, icon="💾", title=t("modules.automation.sarif_export"),
+        description=t("modules.automation.sarif_export_desc"),
+        fields=[FormField("path", t("modules.automation.export_path"),
+                          placeholder="report.sarif")],
+        on_run=run_sarif_export, runner=runner, log=log, category_color=color,
+    ))
+
+    # Database Init
+    def run_db_init(v, lg):
+        path = str(v.get("path", "")).strip() or None
+        E.db_init(path, lg)
+
+    panel.add(ToolCard(
+        panel, icon="🗄️", title=t("modules.automation.db_init"),
+        description=t("modules.automation.db_init_desc"),
+        fields=[FormField("path", t("modules.automation.db_path"),
+                          placeholder="penetrator.db")],
+        on_run=run_db_init, runner=runner, log=log, category_color=color,
     ))
 
     return panel
