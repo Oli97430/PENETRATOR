@@ -68,7 +68,10 @@ class LogCollector:
 @app.exception_handler(Exception)
 async def _global_exception_handler(request, exc):
     if isinstance(exc, HTTPException):
-        raise exc
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
     return JSONResponse(
         status_code=500,
         content={"error": str(exc), "type": type(exc).__name__},
@@ -160,13 +163,13 @@ def scan_ports(req: PortScanRequest, _=Depends(verify_key)):
         if "-" in parts and "," not in parts:
             lo, hi = parts.split("-", 1)
             start, end = int(lo), int(hi)
+            result = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
         else:
-            # Comma-separated list — scan each port individually
+            # Comma-separated list — scan min..max then filter to requested
             port_list = sorted({int(p) for p in parts.split(",")})
-            # Use min/max only as a convenience; for precise control
-            # the engine scans the full range start..end
             start, end = min(port_list), max(port_list)
-        result = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
+            all_open = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
+            result = [p for p in all_open if p in port_list]
         return {"result": result, "log": log.entries}
     except ValueError as exc:
         raise HTTPException(400, f"Invalid port specification: {exc}")

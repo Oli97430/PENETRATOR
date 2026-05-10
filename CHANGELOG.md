@@ -7,6 +7,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-05-10
+
+### Fixed
+- **attack_chain URL double-scheme**: normalized URL once at top — no more
+  `http://https://example.com` when target is a full URL (18 branches affected)
+- **session_set** added to 7 core functions: check_security_headers, cors_test,
+  open_redirect_test, sqli_detect, xss_reflected, ssrf_scan, lfi_scan
+- **cors_test** early cancellation now reaches session_set (was returning early)
+- **API exception handler** returns clean JSON for HTTPException (was re-raising)
+- **API scan_ports** comma-separated port list now filters to requested ports only
+  (was scanning entire min..max range)
+- **executive_report** version string updated from 1.5.0 to 1.7.0
+- **sqli_detect / xss_reflected** — requests.Session now properly closed on exit
+- **URL scheme guard** added to csrf_analyze, cookie_audit, js_endpoint_extract
+- **_should_stop()** added to username_search, race_condition_test
+- **scan_ports** port range clamped to 1-65535
+- Removed dead "HTTP Repeater" comment block
+- Redundant import removed from attack_chain
+- requirements.txt: added paho-mqtt, cryptography
+- API: removed duplicate endpoint, unused imports
+- Dockerfile: non-root user, HEALTHCHECK
+- Tests: fixed socket import order
+
+### Added
+- 7 new tests: attack_chain URL normalization + cors_test session_set guarantee
+
 ## [1.7.0] — 2026-05-08
 
 ### Added — Phase 11: Advanced Tools & Architecture
@@ -34,7 +60,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **Scope Management** — in-scope/out-of-scope target rules via SQLite
 - **SARIF v2.1.0 Export** — standards-compliant security findings export
 - **SQLite Persistence** — sessions, findings, and scope stored in `data/penetrator.db`
-- **REST API** — FastAPI-based headless interface (15 endpoints + /health)
+- **REST API** — FastAPI-based headless interface (13 endpoints + /health)
 - **Docker Support** — Dockerfile + docker-compose for containerized deployment
 - **PCI-DSS & CIS Benchmarks** — basic compliance checking
 
@@ -55,7 +81,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Insecure deserialization Python pickle hex prefix corrected to valid opcode
 
 #### API / Infrastructure (5)
-- All 15 API endpoints wrapped with try/except → clean JSON error responses
+- All API endpoints wrapped with try/except → clean JSON error responses
 - SARIF endpoint restricted to `data/reports/` directory (prevents arbitrary file writes)
 - API port parsing documented; comma-separated ports now validated
 - Deprecated `@app.on_event("startup")` replaced with FastAPI lifespan context manager

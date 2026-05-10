@@ -1001,3 +1001,90 @@ class TestDbWrappers:
         rows = E.db_query("tool", None, None, _log)
         assert rows[0]["data"]["key"] == "value"
         assert rows[0]["data"]["nested"]["a"] == 1
+
+
+# ===================================================================
+#  Attack Chain — URL normalization
+# ===================================================================
+class TestAttackChainNormalization:
+    """Verify that attack_chain normalizes the target correctly so that
+    socket-based steps get a bare host while web-based steps get a full URL."""
+
+    @patch("gui.engine.check_security_headers")
+    @patch("gui.engine.scan_ports")
+    def test_plain_host_gets_http_prefix_for_web_steps(self, mock_scan, mock_headers):
+        """When target has no scheme, web steps receive 'http://host'."""
+        mock_scan.return_value = {"open": []}
+        mock_headers.return_value = {"headers": {}}
+
+        E.attack_chain("example.com", ["port_scan", "headers"], _log)
+
+        # socket-based step should receive bare host
+        assert mock_scan.call_args[0][0] == "example.com"
+        # web-based step should receive URL with scheme
+        assert mock_headers.call_args[0][0] == "http://example.com"
+
+    @patch("gui.engine.check_security_headers")
+    @patch("gui.engine.scan_ports")
+    def test_url_with_scheme_preserves_scheme(self, mock_scan, mock_headers):
+        """When target already has a scheme, no double-prefixing occurs."""
+        mock_scan.return_value = {"open": []}
+        mock_headers.return_value = {"headers": {}}
+
+        E.attack_chain("https://secure.io", ["port_scan", "headers"], _log)
+
+        # socket-based step should get extracted hostname
+        assert mock_scan.call_args[0][0] == "secure.io"
+        # web-based step should keep the original HTTPS URL
+        assert mock_headers.call_args[0][0] == "https://secure.io"
+
+    @patch("gui.engine.find_subdomains")
+    def test_http_target_extracts_hostname_for_socket_steps(self, mock_sub):
+        """Subdomain step (socket-based) gets just the hostname, not a URL."""
+        mock_sub.return_value = []
+
+        E.attack_chain("http://sub.example.org/path", ["subdomain"], _log)
+
+        assert mock_sub.call_args[0][0] == "sub.example.org"
+
+    def test_unknown_step_logged_without_crash(self):
+        """Unknown step names should be skipped gracefully, not raise."""
+        result = E.attack_chain("example.com", ["nonexistent_step"], _log)
+        assert "outputs" in result
+        assert "nonexistent_step" not in result["outputs"]
+
+    @patch("gui.engine.scan_ports")
+    def test_outputs_key_used_not_results(self, mock_scan):
+        """attack_chain returns 'outputs', not 'results'."""
+        mock_scan.return_value = {"open": [80]}
+        result = E.attack_chain("x.com", ["port_scan"], _log)
+        assert "outputs" in result
+        assert "results" not in result
+
+
+# ===================================================================
+#  CORS test — session_set called even on early stop
+# ===================================================================
+class TestCorsSessionSet:
+    @patch("requests.get")
+    def test_session_set_called_on_normal_run(self, mock_get):
+        """cors_test should always set session key, even with 0 findings."""
+        mock_get.return_value = _mock_response(
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+        E._session.pop("last_cors_result", None)
+
+        E.cors_test("http://test.com", _log)
+
+        assert "last_cors_result" in E._session
+
+    @patch("gui.engine._should_stop", side_effect=[True])
+    @patch("requests.get")
+    def test_session_set_called_when_stopped_early(self, mock_get, mock_stop):
+        """Even if _should_stop() fires immediately, session_set must run."""
+        E._session.pop("last_cors_result", None)
+
+        E.cors_test("http://test.com", _log)
+
+        # session_set must have been reached via the break path
+        assert "last_cors_result" in E._session
