@@ -27,7 +27,7 @@ paho-mqtt>=2.0.0
 cryptography>=42.0.0
 
 # --- Reporting ---
-fpdf2>=2.7.0
+fpdf2>=2.8.4
 
 # --- API server ---
 fastapi>=0.111.0
