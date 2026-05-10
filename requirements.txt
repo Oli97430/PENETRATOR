@@ -20,6 +20,12 @@ Pillow>=11.3.0
 # --- OSINT ---
 phonenumbers>=9.0.29
 
+# --- IoT / MQTT ---
+paho-mqtt>=2.0.0
+
+# --- Cryptography ---
+cryptography>=42.0.0
+
 # --- Reporting ---
 fpdf2>=2.7.0
 

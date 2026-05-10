@@ -264,6 +264,9 @@ def _check_port(target: str, port: int, timeout: float) -> bool:
 
 def scan_ports(target: str, start: int, end: int, threads: int, timeout: float,
                log: Logger) -> list[int]:
+    # Clamp port range to valid values
+    start = max(1, min(start, 65535))
+    end = max(start, min(end, 65535))
     try:
         ip = socket.gethostbyname(target)
     except socket.gaierror as exc:
@@ -515,6 +518,7 @@ def check_security_headers(url: str, log: Logger) -> dict:
             log(f"[+] {header}: {value}", "ok")
         else:
             log(f"[-] missing: {header}  ({purpose})", "warn")
+    session_set("last_security_headers", result)
     return result
 
 
@@ -616,6 +620,7 @@ def sqli_detect(url: str, log: Logger) -> list[tuple[str, str, str]]:
                     break
     if not findings:
         log("[!] No obvious SQL injection indicator found", "warn")
+    session_set("last_sqli_result", findings)
     return findings
 
 
@@ -664,6 +669,7 @@ def xss_reflected(url: str, log: Logger) -> list[tuple[str, str]]:
                 log(f"[+] Reflected: {marked}", "ok")
     if not findings:
         log("[!] No reflected payloads detected", "warn")
+    session_set("last_xss_result", findings)
     return findings
 
 
@@ -1022,7 +1028,12 @@ def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
     log(f"[*] Checking {username} on {len(USERNAME_SITES)} sites", "cyan")
     rows: list[tuple[str, str, int]] = []
     with ThreadPoolExecutor(max_workers=10) as pool:
-        for fut in as_completed(pool.submit(probe, site, tmpl) for site, tmpl in USERNAME_SITES.items()):
+        futures = [pool.submit(probe, site, tmpl) for site, tmpl in USERNAME_SITES.items()]
+        for fut in as_completed(futures):
+            if _should_stop():
+                for p in futures:
+                    p.cancel()
+                break
             site, url, code = fut.result()
             rows.append((site, url, code))
             tag = "ok" if code == 200 else ("muted" if code == 404 else "warn" if code else "err")
@@ -1934,7 +1945,9 @@ def cors_test(url: str, log: Logger) -> dict:
                          "risky": risky, "notes": notes})
     risky_n = sum(1 for f in findings if f.get("risky"))
     log(f"[*] {risky_n} risky configuration(s) detected", "warn" if risky_n else "ok")
-    return {"findings": findings}
+    result = {"findings": findings}
+    session_set("last_cors_result", result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1977,6 +1990,7 @@ def open_redirect_test(url: str, log: Logger) -> list[tuple[str, str]]:
                     "err")
     if not findings:
         log("[+] No open-redirect indicator found", "ok")
+    session_set("last_open_redirect", findings)
     return findings
 
 
@@ -2289,6 +2303,7 @@ def ssrf_scan(url: str, param: str, log: Logger) -> list[dict]:
             log(f"  {payload} → HTTP {resp.status_code} (benign)", "muted")
 
     log(f"[*] {len(findings)} potential SSRF indicator(s)", "warn" if findings else "ok")
+    session_set("last_ssrf_result", findings)
     return findings
 
 
@@ -2441,6 +2456,10 @@ def race_condition_test(url: str, method: str, body: str, count: int,
     with ThreadPoolExecutor(max_workers=count) as pool:
         futures = [pool.submit(fire, i) for i in range(count)]
         for fut in as_completed(futures):
+            if _should_stop():
+                for p in futures:
+                    p.cancel()
+                break
             results.append(fut.result())
 
     # Analyze variance
@@ -4083,6 +4102,7 @@ def lfi_scan(url: str, param: str, log: Logger) -> list[dict]:
             log(f"  {payload[:50]} → no indicators", "muted")
 
     log(f"[*] {len(findings)} LFI indicator(s)", "warn" if findings else "ok")
+    session_set("last_lfi_result", findings)
     return findings
 
 
@@ -4100,7 +4120,18 @@ def attack_chain(target: str, chain: list[str], log: Logger) -> dict:
     """
     log(f"[*] Attack chain on {target}: {' → '.join(chain)}", "cyan")
     results: dict = {"target": target, "chain": chain, "outputs": {}}
-    session_set("last_target", target)
+
+    # Normalize: build a URL for web-facing tools, keep raw host for socket tools
+    if target.startswith(("http://", "https://")):
+        url = target
+        # Extract hostname for socket-based tools
+        from urllib.parse import urlparse as _up
+        _parsed = _up(target)
+        host = _parsed.hostname or target
+    else:
+        url = f"http://{target}"
+        host = target
+    session_set("last_target", host)
 
     for step in chain:
         if _should_stop():
@@ -4112,77 +4143,59 @@ def attack_chain(target: str, chain: list[str], log: Logger) -> dict:
 
         try:
             if step == "port_scan":
-                results["outputs"]["port_scan"] = scan_ports(target, 1, 1024, 200, 0.5, log)
+                results["outputs"]["port_scan"] = scan_ports(host, 1, 1024, 200, 0.5, log)
             elif step == "banner":
-                results["outputs"]["banner"] = scan_with_banners(target, 1, 1024, 100, 0.6, log)
+                results["outputs"]["banner"] = scan_with_banners(host, 1, 1024, 100, 0.6, log)
             elif step == "tls":
-                results["outputs"]["tls"] = tls_scan(target, 443, log)
+                results["outputs"]["tls"] = tls_scan(host, 443, log)
             elif step == "headers":
-                url = f"http://{target}"
                 results["outputs"]["headers"] = check_security_headers(url, log)
             elif step == "buster":
-                url = f"http://{target}"
                 results["outputs"]["buster"] = buster(url, DEFAULT_WEB_PATHS, 50, log)
             elif step == "waf":
-                url = f"http://{target}"
                 results["outputs"]["waf"] = waf_detect(url, log)
             elif step == "cors":
-                url = f"http://{target}"
                 results["outputs"]["cors"] = cors_test(url, log)
             elif step == "subdomain":
-                results["outputs"]["subdomain"] = find_subdomains(target, 50, log)
+                results["outputs"]["subdomain"] = find_subdomains(host, 50, log)
             elif step == "takeover":
-                results["outputs"]["takeover"] = check_subdomain_takeover(target, log)
+                results["outputs"]["takeover"] = check_subdomain_takeover(host, log)
             elif step == "git_exposure":
-                url = f"http://{target}"
                 results["outputs"]["git"] = git_exposure_check(url, log)
             elif step == "swagger":
-                url = f"http://{target}"
                 results["outputs"]["swagger"] = swagger_discovery(url, log)
             # Phase 11 aliases — map profile step names to functions
             elif step in ("tech_fingerprint", "tech_fp"):
-                url = f"http://{target}"
                 results["outputs"]["tech_fingerprint"] = tech_fingerprint(url, log)
             elif step in ("header_check", "security_headers"):
-                url = f"http://{target}"
                 results["outputs"]["header_check"] = check_security_headers(url, log)
             elif step in ("subdomain_find", "subdomains"):
-                results["outputs"]["subdomain_find"] = find_subdomains(target, 50, log)
+                results["outputs"]["subdomain_find"] = find_subdomains(host, 50, log)
             elif step in ("tls_scan", "tls_check"):
-                results["outputs"]["tls_scan"] = tls_scan(target, 443, log)
+                results["outputs"]["tls_scan"] = tls_scan(host, 443, log)
             elif step in ("cookie_audit", "cookies"):
-                url = f"http://{target}"
                 results["outputs"]["cookie_audit"] = cookie_audit(url, log)
             elif step in ("csrf_analyze", "csrf"):
-                url = f"http://{target}"
                 results["outputs"]["csrf_analyze"] = csrf_analyze(url, log)
             elif step in ("open_redirect", "redirect"):
-                url = f"http://{target}"
                 results["outputs"]["open_redirect"] = open_redirect_test(url, log)
             elif step in ("waf_detect", "waf_check"):
-                url = f"http://{target}"
                 results["outputs"]["waf_detect"] = waf_detect(url, log)
             elif step in ("ssti_scan", "ssti"):
-                url = f"http://{target}"
                 results["outputs"]["ssti_scan"] = ssti_scan(url, "q", log)
             elif step in ("xss_probe", "xss"):
-                url = f"http://{target}"
                 results["outputs"]["xss_probe"] = xss_reflected(url, log)
             elif step in ("lfi_scan", "lfi"):
-                url = f"http://{target}"
                 results["outputs"]["lfi_scan"] = lfi_scan(url, "page", log)
             elif step in ("ssrf_scan", "ssrf"):
-                url = f"http://{target}"
                 results["outputs"]["ssrf_scan"] = ssrf_scan(url, "url", log)
             elif step in ("js_endpoint_extract", "js_extract"):
-                url = f"http://{target}"
                 results["outputs"]["js_endpoint_extract"] = js_endpoint_extract(url, log)
             elif step in ("whois_lookup", "whois"):
-                results["outputs"]["whois_lookup"] = whois_lookup(target, log)
+                results["outputs"]["whois_lookup"] = whois_lookup(host, log)
             elif step in ("subdomain_perm", "altdns"):
-                results["outputs"]["subdomain_perm"] = subdomain_permutation(target, log)
+                results["outputs"]["subdomain_perm"] = subdomain_permutation(host, log)
             elif step in ("cors_test", "cors_check"):
-                url = f"http://{target}"
                 results["outputs"]["cors_test"] = cors_test(url, log)
             else:
                 log(f"  Unknown step: {step}", "warn")
@@ -5916,6 +5929,8 @@ def jwt_key_confusion(token: str, public_key: str, log: Logger) -> dict:
 def csrf_analyze(url: str, log: Logger) -> dict:
     """Analyze CSRF protections on a web form."""
     import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
     log(f"[*] CSRF analysis: {url}", "cyan")
     result: dict = {"url": url, "tokens_found": [], "issues": [], "score": 100}
 
@@ -5992,6 +6007,8 @@ def csrf_analyze(url: str, log: Logger) -> dict:
 def cookie_audit(url: str, log: Logger) -> dict:
     """Audit cookie security attributes (Secure, HttpOnly, SameSite, etc.)."""
     import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
     log(f"[*] Cookie security audit: {url}", "cyan")
     result: dict = {"url": url, "cookies": [], "issues": []}
 
@@ -6256,6 +6273,8 @@ _JS_URL_RE = re.compile(
 def js_endpoint_extract(url: str, log: Logger) -> dict:
     """Fetch JavaScript files from a page and extract API endpoints."""
     import requests
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
     log(f"[*] JS endpoint extraction: {url}", "cyan")
     result: dict = {"url": url, "scripts": [], "endpoints": [], "full_urls": []}
 
