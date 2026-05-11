@@ -19,7 +19,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **API scan_ports** comma-separated port list now filters to requested ports only
   (was scanning entire min..max range)
 - **executive_report** version string updated from 1.5.0 to 1.7.0
-- **sqli_detect / xss_reflected** — requests.Session now properly closed on exit
+- **requests.Session leak** — 20 functions now close sessions properly (was leaking
+  connection pools on every invocation)
+- **http_smuggling_detect** HTTPS double-close corrupted findings (SSLSocket.close
+  already closes underlying fd)
+- **snmp_walk** double-close on success path removed (let `finally` handle it)
+- **executive_report** subdomain tuples now rendered as `host (ip)`, not raw Python repr
+- **API scan_ports** comma-separated filter now uses O(1) set membership
 - **URL scheme guard** added to csrf_analyze, cookie_audit, js_endpoint_extract
 - **_should_stop()** added to username_search, race_condition_test
 - **scan_ports** port range clamped to 1-65535

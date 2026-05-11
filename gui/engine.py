@@ -1040,6 +1040,7 @@ def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
             rows.append((site, url, code))
             tag = "ok" if code == 200 else ("muted" if code == 404 else "warn" if code else "err")
             log(f"  [{code or '---'}] {site:<15} {url}", tag)
+    sess.close()
     return rows
 
 
@@ -1773,6 +1774,7 @@ def graphql_field_enum(url: str, log: Logger) -> dict:
             log(f"  {field}: ambiguous — {text[:80]}", "muted")
 
     log(f"[*] {len(found)} probable field(s)", "cyan")
+    sess.close()
     return {"found": found}
 
 
@@ -1866,7 +1868,10 @@ def http_smuggling_detect(url: str, log: Logger) -> dict:
             finally:
                 sock.close()
                 if sock is not raw_sock:
-                    raw_sock.close()
+                    try:
+                        raw_sock.close()
+                    except OSError:
+                        pass  # SSLSocket.close() already closed underlying fd
         except OSError as exc:
             log(f"  {name}: connection error {exc}", "muted")
             findings["results"].append({"variant": name, "error": str(exc)})
@@ -1989,6 +1994,7 @@ def open_redirect_test(url: str, log: Logger) -> list[tuple[str, str]]:
                     "err")
     if not findings:
         log("[+] No open-redirect indicator found", "ok")
+    sess.close()
     session_set("last_open_redirect", findings)
     return findings
 
@@ -2302,6 +2308,7 @@ def ssrf_scan(url: str, param: str, log: Logger) -> list[dict]:
             log(f"  {payload} → HTTP {resp.status_code} (benign)", "muted")
 
     log(f"[*] {len(findings)} potential SSRF indicator(s)", "warn" if findings else "ok")
+    sess.close()
     session_set("last_ssrf_result", findings)
     return findings
 
@@ -2418,6 +2425,7 @@ def crlf_test(url: str, log: Logger) -> list[dict]:
 
     if not findings:
         log("[+] No CRLF injection detected", "ok")
+    sess.close()
     return findings
 
 
@@ -2477,6 +2485,7 @@ def race_condition_test(url: str, method: str, body: str, count: int,
     else:
         log("[+] Responses are consistent — no obvious race", "ok")
 
+    sess.close()
     return {"total": len(results), "unique_statuses": list(unique_statuses),
             "unique_lengths": unique_lengths, "suspicious": suspicious,
             "results": results[:10]}
@@ -2794,7 +2803,6 @@ def snmp_walk(host: str, community: str, log: Logger) -> list[dict]:
             packet = build_snmp_get(comm)
             sock.sendto(packet, (host, 161))
             data, _ = sock.recvfrom(4096)
-            sock.close()
             # If we got a response, community string is valid
             log(f"[+] Community '{comm}' — {len(data)} bytes response", "ok")
             # Try to extract sysDescr string
@@ -2927,6 +2935,7 @@ def swagger_discovery(url: str, log: Logger) -> list[dict]:
                 log(f"  {target} [{resp.status_code}] — not API doc", "muted")
 
     log(f"[*] {len(found)} API documentation endpoint(s) found", "warn" if found else "ok")
+    sess.close()
     return found
 
 
@@ -2994,6 +3003,7 @@ def broken_auth_test(url: str, valid_token: str, log: Logger) -> dict:
 
     vuln_count = sum(1 for t in results["tests"] if t.get("vulnerable"))
     log(f"[*] {vuln_count} broken auth indicator(s)", "warn" if vuln_count else "ok")
+    sess.close()
     return results
 
 
@@ -3076,6 +3086,7 @@ def mass_assignment_test(url: str, method: str, base_body: str,
             findings.append({"field": field, "status": 422, "note": "recognized"})
 
     log(f"[*] {len(findings)} potential mass-assignment field(s)", "warn" if findings else "ok")
+    sess.close()
     return findings
 
 
@@ -3121,6 +3132,7 @@ def rate_limit_test(url: str, count: int, log: Logger) -> dict:
     else:
         log(f"[+] Rate limiting kicks in at request #{blocked_at}", "ok")
 
+    sess.close()
     return {"total_sent": len(statuses), "rate_limited": rate_limited,
             "blocked_at": blocked_at,
             "status_distribution": {s: statuses.count(s) for s in set(statuses)}}
@@ -3391,6 +3403,7 @@ def s3_bucket_enum(domain: str, log: Logger) -> list[dict]:
             found.append({"bucket": name, "url": url, "status": "redirect"})
 
     log(f"[*] {len(found)} bucket(s) found", "warn" if found else "ok")
+    sess.close()
     return found
 
 
@@ -3435,6 +3448,7 @@ def azure_blob_check(domain: str, log: Logger) -> list[dict]:
                 log(f"[~] {account}/{container} — exists (access denied)", "info")
 
     log(f"[*] {len(found)} accessible container(s)", "warn" if found else "ok")
+    sess.close()
     return found
 
 
@@ -3494,6 +3508,7 @@ def git_exposure_check(url: str, log: Logger) -> list[dict]:
         log(f"[!] {len(found)} sensitive file(s) exposed — source code leak!", "err")
     else:
         log("[+] No git exposure detected", "ok")
+    sess.close()
     return found
 
 
@@ -3824,6 +3839,7 @@ def github_dorking(domain: str, log: Logger) -> list[dict]:
         time.sleep(2)  # Respect rate limits
 
     log(f"[*] {len(findings)} potential leak(s) found", "warn" if findings else "ok")
+    sess.close()
     return findings
 
 
@@ -3874,6 +3890,7 @@ def paste_monitor(domain: str, log: Logger) -> list[dict]:
     log(f"  Manual search: {intelx_url}", "info")
 
     log(f"[*] {len(findings)} paste(s) found", "warn" if findings else "ok")
+    sess.close()
     return findings
 
 
@@ -3946,6 +3963,7 @@ def domain_reputation(target: str, log: Logger) -> dict:
     except requests.RequestException:
         pass
 
+    sess.close()
     return results
 
 
@@ -4101,6 +4119,7 @@ def lfi_scan(url: str, param: str, log: Logger) -> list[dict]:
             log(f"  {payload[:50]} → no indicators", "muted")
 
     log(f"[*] {len(findings)} LFI indicator(s)", "warn" if findings else "ok")
+    sess.close()
     session_set("last_lfi_result", findings)
     return findings
 
@@ -4408,7 +4427,10 @@ def executive_report(target: str, log: Logger) -> str:
     if subs:
         lines.append("## Subdomains")
         for s in sorted(subs)[:20]:
-            lines.append(f"- {s}")
+            if isinstance(s, (list, tuple)) and len(s) >= 2:
+                lines.append(f"- {s[0]} ({s[1]})")
+            else:
+                lines.append(f"- {s}")
         lines.append("")
 
     lines.append("## Recommendations")

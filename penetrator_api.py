@@ -166,10 +166,10 @@ def scan_ports(req: PortScanRequest, _=Depends(verify_key)):
             result = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
         else:
             # Comma-separated list — scan min..max then filter to requested
-            port_list = sorted({int(p) for p in parts.split(",")})
-            start, end = min(port_list), max(port_list)
+            port_set = {int(p) for p in parts.split(",")}
+            start, end = min(port_set), max(port_set)
             all_open = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
-            result = [p for p in all_open if p in port_list]
+            result = [p for p in all_open if p in port_set]
         return {"result": result, "log": log.entries}
     except ValueError as exc:
         raise HTTPException(400, f"Invalid port specification: {exc}")
