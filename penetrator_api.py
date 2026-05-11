@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="PENETRATOR API",
-    version="1.7.0",
+    version="1.7.2",
     description="Penetration testing toolkit API",
     lifespan=lifespan,
 )

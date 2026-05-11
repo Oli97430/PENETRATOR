@@ -7,37 +7,43 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-## [1.7.1] — 2026-05-10
+## [1.7.2] — 2026-05-11
 
-### Fixed
-- **attack_chain URL double-scheme**: normalized URL once at top — no more
+### Fixed — Polish passes 4 & 5 (28 bugs)
+- **requests.Session leak** — 20 functions now properly close sessions (connection
+  pool leak on every invocation across: buster, sqli_detect, xss_reflected,
+  username_search, graphql_field_enum, open_redirect_test, ssrf_scan, crlf_test,
+  race_condition_test, swagger_discovery, broken_auth_test, mass_assignment_test,
+  rate_limit_test, s3_bucket_enum, azure_blob_check, git_exposure_check,
+  github_dorking, paste_monitor, domain_reputation, lfi_scan)
+- **http_smuggling_detect** HTTPS double-close falsely recorded every probe as a
+  connection error (SSLSocket.close already closes underlying fd)
+- **snmp_walk** double-close on success path (let `finally` handle it exclusively)
+- **executive_report** subdomains rendered as raw Python tuples instead of `host (ip)`
+- **executive_report** stale version string 1.5.0 → 1.7.2
+- **attack_chain URL double-scheme**: normalized once at top — no more
   `http://https://example.com` when target is a full URL (18 branches affected)
-- **session_set** added to 7 core functions: check_security_headers, cors_test,
-  open_redirect_test, sqli_detect, xss_reflected, ssrf_scan, lfi_scan
-- **cors_test** early cancellation now reaches session_set (was returning early)
+- **session_set** added to 7 core functions that were missing it: check_security_headers,
+  cors_test, open_redirect_test, sqli_detect, xss_reflected, ssrf_scan, lfi_scan
+- **cors_test** early cancellation now reaches session_set (was early-returning)
 - **API exception handler** returns clean JSON for HTTPException (was re-raising)
-- **API scan_ports** comma-separated port list now filters to requested ports only
-  (was scanning entire min..max range)
-- **executive_report** version string updated from 1.5.0 to 1.7.0
-- **requests.Session leak** — 20 functions now close sessions properly (was leaking
-  connection pools on every invocation)
-- **http_smuggling_detect** HTTPS double-close corrupted findings (SSLSocket.close
-  already closes underlying fd)
-- **snmp_walk** double-close on success path removed (let `finally` handle it)
-- **executive_report** subdomain tuples now rendered as `host (ip)`, not raw Python repr
-- **API scan_ports** comma-separated filter now uses O(1) set membership
+- **API scan_ports** comma-separated filter uses O(1) set lookup; filters to exact
+  requested ports rather than scanning entire min..max range
 - **URL scheme guard** added to csrf_analyze, cookie_audit, js_endpoint_extract
 - **_should_stop()** added to username_search, race_condition_test
-- **scan_ports** port range clamped to 1-65535
+- **scan_ports** port range clamped to valid 1-65535
 - Removed dead "HTTP Repeater" comment block
 - Redundant import removed from attack_chain
-- requirements.txt: added paho-mqtt, cryptography
-- API: removed duplicate endpoint, unused imports
-- Dockerfile: non-root user, HEALTHCHECK
-- Tests: fixed socket import order
+- Dockerfile: non-root user, HEALTHCHECK; no baked-in API key
+- Tests: fixed socket import NameError
 
 ### Added
-- 7 new tests: attack_chain URL normalization + cors_test session_set guarantee
+- 7 regression tests: attack_chain URL normalization (3) + cors_test session_set (2)
+  + outputs key contract (1) + unknown step graceful handling (1)
+
+## [1.7.1] — 2026-05-10
+
+> Superseded by 1.7.2 (same fix set, incomplete at time of tag)
 
 ## [1.7.0] — 2026-05-08
 
