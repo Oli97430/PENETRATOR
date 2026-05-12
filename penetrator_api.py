@@ -4,6 +4,7 @@ Run: uvicorn penetrator_api:app --host 0.0.0.0 --port 8000
 """
 from __future__ import annotations
 
+import hmac
 import os
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ if str(_HERE) not in sys.path:
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -47,7 +49,7 @@ API_KEY = os.environ.get("PENETRATOR_API_KEY", "changeme")
 
 
 def verify_key(x_api_key: str = Header(...)):
-    if x_api_key != API_KEY:
+    if not hmac.compare_digest(x_api_key, API_KEY):
         raise HTTPException(403, "Invalid API key")
 
 
@@ -63,8 +65,16 @@ class LogCollector:
 
 
 # ---------------------------------------------------------------------------
-# Global exception handler — wrap engine errors into clean JSON responses
+# Global exception handlers — wrap errors into clean JSON responses
 # ---------------------------------------------------------------------------
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+
 @app.exception_handler(Exception)
 async def _global_exception_handler(request, exc):
     if isinstance(exc, HTTPException):
@@ -72,9 +82,10 @@ async def _global_exception_handler(request, exc):
             status_code=exc.status_code,
             content={"detail": exc.detail},
         )
+    # Don't leak internal details (file paths, SQL errors) to clients
     return JSONResponse(
         status_code=500,
-        content={"error": str(exc), "type": type(exc).__name__},
+        content={"error": "Internal server error"},
     )
 
 

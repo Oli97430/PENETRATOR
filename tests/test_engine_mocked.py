@@ -277,6 +277,9 @@ class TestSubdomainPermutation:
 
         # At least some "dev" variants should resolve
         assert isinstance(result, list)
+        assert len(result) > 0, "Expected at least one resolved permutation"
+        # Each entry should be a dict with subdomain and ip keys
+        assert all(isinstance(r, dict) and "subdomain" in r and "ip" in r for r in result)
 
     @patch("socket.gethostbyname")
     def test_all_fail_gracefully(self, mock_dns):
@@ -337,7 +340,10 @@ class TestVhostDiscover:
 
         result = E.vhost_discover("10.0.0.1", "host1.com,host2.com", _log)
 
+        # All responses same as baseline → empty, but function must accept string input
         assert isinstance(result, list)
+        # Baseline + 2 hosts = at least 3 GET calls
+        assert mock_get.call_count >= 3
 
 
 # ===================================================================

@@ -150,12 +150,22 @@ class TestScanDiff:
     def test_empty_diffs(self):
         result = E.scan_diff({}, {}, _log)
         assert isinstance(result, dict)
+        assert result["new"] == []
+        assert result["removed"] == []
 
-    def test_detects_new_keys(self):
+    def test_detects_new_ports(self):
         curr = {"ports": [80, 443, 8080]}
         prev = {"ports": [80, 443]}
         result = E.scan_diff(curr, prev, _log)
-        assert isinstance(result, dict)
+        assert 8080 in result["new"]
+        assert result["removed"] == []
+
+    def test_detects_removed_ports(self):
+        curr = {"ports": [80]}
+        prev = {"ports": [80, 443]}
+        result = E.scan_diff(curr, prev, _log)
+        assert 443 in result["removed"]
+        assert result["new"] == []
 
 
 class TestHoneypotDetect:
@@ -228,14 +238,15 @@ class TestFirmwareStrings:
         assert len(result["urls"]) >= 1
         assert len(result["emails"]) >= 1
 
-    def test_rejects_large_file(self, tmp_path: Path):
-        """Should refuse files over 100MB."""
-        f = tmp_path / "large.bin"
-        # Just create a small file and mock the stat
+    def test_small_file_returns_valid_structure(self, tmp_path: Path):
+        """Small file should be analyzed and return proper dict structure."""
+        f = tmp_path / "small.bin"
         f.write_bytes(b"\x00" * 100)
-        # Can't easily test 100MB, but verify the check exists
         result = E.firmware_strings(str(f), 6, _log)
         assert isinstance(result, dict)
+        assert "total" in result
+        assert "credentials" in result
+        assert result["total"] == 0  # no printable strings ≥6 chars in null bytes
 
 
 # ===========================================================================
@@ -245,8 +256,9 @@ class TestFirmwareStrings:
 class TestYaraScan:
     def test_missing_rules_path(self):
         result = E.yara_scan("/some/file", "/nonexistent/rules", _log)
-        # Should return empty if yara not installed OR rules not found
+        # Should return empty list if yara not installed OR rules not found
         assert isinstance(result, list)
+        assert result == []
 
 
 # ===========================================================================

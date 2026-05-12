@@ -73,8 +73,10 @@ def init_db(path: str | Path | None = None) -> Path:
         _DB_PATH = Path(path)
     db = _db_path()
     conn = _connect()
-    conn.executescript(SCHEMA)
-    conn.close()
+    try:
+        conn.executescript(SCHEMA)
+    finally:
+        conn.close()
     return db
 
 
@@ -84,33 +86,38 @@ def init_db(path: str | Path | None = None) -> Path:
 
 def create_session(name: str, target: str = "") -> int:
     conn = _connect()
-    cur = conn.execute(
-        "INSERT INTO sessions (name, target, started) VALUES (?, ?, ?)",
-        (name, target, time.strftime("%Y-%m-%dT%H:%M:%S")),
-    )
-    conn.commit()
-    sid = cur.lastrowid
-    conn.close()
-    return sid  # type: ignore[return-value]
+    try:
+        cur = conn.execute(
+            "INSERT INTO sessions (name, target, started) VALUES (?, ?, ?)",
+            (name, target, time.strftime("%Y-%m-%dT%H:%M:%S")),
+        )
+        conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+    finally:
+        conn.close()
 
 
 def end_session(session_id: int) -> None:
     conn = _connect()
-    conn.execute(
-        "UPDATE sessions SET ended = ? WHERE id = ?",
-        (time.strftime("%Y-%m-%dT%H:%M:%S"), session_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "UPDATE sessions SET ended = ? WHERE id = ?",
+            (time.strftime("%Y-%m-%dT%H:%M:%S"), session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def list_sessions(limit: int = 50) -> list[dict]:
     conn = _connect()
-    rows = conn.execute(
-        "SELECT * FROM sessions ORDER BY id DESC LIMIT ?", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            "SELECT * FROM sessions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 # ------------------------------------------------------------------
@@ -127,24 +134,25 @@ def store_finding(
     session_id: int = 0,
 ) -> int:
     conn = _connect()
-    cur = conn.execute(
-        "INSERT INTO findings (session_id, timestamp, tool, target, severity, "
-        "cvss_score, cvss_vector, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            session_id,
-            time.strftime("%Y-%m-%dT%H:%M:%S"),
-            tool,
-            target,
-            severity,
-            cvss_score,
-            cvss_vector,
-            json.dumps(data, default=str) if data is not None else "{}",
-        ),
-    )
-    conn.commit()
-    fid = cur.lastrowid
-    conn.close()
-    return fid  # type: ignore[return-value]
+    try:
+        cur = conn.execute(
+            "INSERT INTO findings (session_id, timestamp, tool, target, severity, "
+            "cvss_score, cvss_vector, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                tool,
+                target,
+                severity,
+                cvss_score,
+                cvss_vector,
+                json.dumps(data, default=str) if data is not None else "{}",
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+    finally:
+        conn.close()
 
 
 def query_findings(
@@ -170,32 +178,35 @@ def query_findings(
         params.append(session_id)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     conn = _connect()
-    rows = conn.execute(
-        f"SELECT * FROM findings{where} ORDER BY id DESC LIMIT ?",
-        (*params, limit),
-    ).fetchall()
-    conn.close()
-    results = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["data"] = json.loads(d.pop("data_json", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            d["data"] = {}
-        results.append(d)
-    return results
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM findings{where} ORDER BY id DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["data"] = json.loads(d.pop("data_json", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                d["data"] = {}
+            results.append(d)
+        return results
+    finally:
+        conn.close()
 
 
 def delete_findings(session_id: int | None = None) -> int:
     conn = _connect()
-    if session_id is not None:
-        cur = conn.execute("DELETE FROM findings WHERE session_id = ?", (session_id,))
-    else:
-        cur = conn.execute("DELETE FROM findings")
-    conn.commit()
-    count = cur.rowcount
-    conn.close()
-    return count
+    try:
+        if session_id is not None:
+            cur = conn.execute("DELETE FROM findings WHERE session_id = ?", (session_id,))
+        else:
+            cur = conn.execute("DELETE FROM findings")
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
 
 
 # ------------------------------------------------------------------
@@ -204,26 +215,32 @@ def delete_findings(session_id: int | None = None) -> int:
 
 def add_scope(target_pattern: str, in_scope: bool = True) -> None:
     conn = _connect()
-    conn.execute(
-        "INSERT OR REPLACE INTO scope (target_pattern, in_scope) VALUES (?, ?)",
-        (target_pattern, 1 if in_scope else 0),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO scope (target_pattern, in_scope) VALUES (?, ?)",
+            (target_pattern, 1 if in_scope else 0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def remove_scope(target_pattern: str) -> None:
     conn = _connect()
-    conn.execute("DELETE FROM scope WHERE target_pattern = ?", (target_pattern,))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("DELETE FROM scope WHERE target_pattern = ?", (target_pattern,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_scope() -> list[dict]:
     conn = _connect()
-    rows = conn.execute("SELECT * FROM scope ORDER BY id").fetchall()
-    conn.close()
-    return [{"pattern": r["target_pattern"], "in_scope": bool(r["in_scope"])} for r in rows]
+    try:
+        rows = conn.execute("SELECT * FROM scope ORDER BY id").fetchall()
+        return [{"pattern": r["target_pattern"], "in_scope": bool(r["in_scope"])} for r in rows]
+    finally:
+        conn.close()
 
 
 def check_scope(target: str) -> bool | None:
