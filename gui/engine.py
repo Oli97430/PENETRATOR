@@ -1087,7 +1087,8 @@ def reverse_dns(ip: str, log: Logger) -> tuple[str, list[str], list[str]] | None
 # Wordlist generation
 # ---------------------------------------------------------------------------
 def cupp_wordlist(values: dict[str, str]) -> set[str]:
-    base = {v.strip() for v in values.values() if v.strip() and v.strip() != values.get("birthday", "")}
+    skip_keys = {"birthday", "keywords"}
+    base = {v.strip() for k, v in values.items() if k not in skip_keys and v.strip()}
     birthday = values.get("birthday", "").strip()
     base |= {v.strip() for v in (values.get("keywords", "").split(",")) if v.strip()}
     cased: set[str] = set()
@@ -3250,7 +3251,7 @@ def rsa_key_analyze(key_text: str, log: Logger) -> dict:
         log("[!] 'cryptography' library not installed — limited analysis", "warn")
         # Try basic extraction from DER
         # Just check key size from the DER length
-        key_bits = len(der) * 4  # rough estimate
+        key_bits = (len(der) - 38) * 8  # rough estimate (DER overhead ~38 bytes)
         results["estimated_bits"] = key_bits
         if key_bits < 2048:
             results["issues"].append("Key appears shorter than 2048 bits")
@@ -3320,7 +3321,7 @@ def ct_monitor(domain: str, log: Logger) -> list[dict]:
     # Use crt.sh API
     try:
         resp = requests.get(
-            f"https://crt.sh/?q=%.{domain}&output=json",
+            f"https://crt.sh/?q=%25.{domain}&output=json",
             timeout=20, headers={"User-Agent": "PENETRATOR/1.0"})
         if resp.status_code != 200:
             log(f"[-] crt.sh returned HTTP {resp.status_code}", "err")
@@ -5758,6 +5759,23 @@ def pci_dss_check(target: str, log: Logger) -> dict:
 # ---------------------------------------------------------------------------
 # 30. CIS Benchmark Scanner
 # ---------------------------------------------------------------------------
+def _cis_pass_min_len(out: str) -> bool:
+    """Parse PASS_MIN_LEN value from login.defs grep output."""
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("#") or not line:
+            continue
+        parts = line.split()
+        # Expect: PASS_MIN_LEN <number>
+        for i, p in enumerate(parts):
+            if "PASS_MIN_LEN" in p.upper() and i + 1 < len(parts):
+                try:
+                    return int(parts[i + 1]) >= 8
+                except ValueError:
+                    pass
+    return False
+
+
 def cis_benchmark(platform: str, log: Logger) -> dict:
     """Run basic CIS benchmark checks for Windows or Linux."""
     import subprocess
@@ -5793,7 +5811,7 @@ def cis_benchmark(platform: str, log: Logger) -> dict:
              lambda out: "no" in out.lower()),
             ("Password min length >= 8",
              'grep -i "PASS_MIN_LEN" /etc/login.defs 2>/dev/null',
-             lambda out: any(int(x) >= 8 for x in re.findall(r"\d+", out))),
+             lambda out: _cis_pass_min_len(out)),
             ("No empty passwords",
              'awk -F: \'($2 == "") {print $1}\' /etc/shadow 2>/dev/null',
              lambda out: out.strip() == ""),

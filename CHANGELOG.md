@@ -7,9 +7,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-## [1.7.2] — 2026-05-11
+## [1.7.2] — 2026-05-12
 
-### Fixed — Polish passes 4 & 5 (28 bugs)
+### Fixed — Polish passes 4, 5 & 6 (40 bugs)
 - **requests.Session leak** — 20 functions now properly close sessions (connection
   pool leak on every invocation across: buster, sqli_detect, xss_reflected,
   username_search, graphql_field_enum, open_redirect_test, ssrf_scan, crlf_test,
@@ -36,10 +36,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Redundant import removed from attack_chain
 - Dockerfile: non-root user, HEALTHCHECK; no baked-in API key
 - Tests: fixed socket import NameError
+- **ct_monitor** crt.sh URL: bare `%` → `%25` (malformed percent-encoding corrupted
+  queries for domains starting with hex characters)
+- **rsa_key_analyze** fallback key-size estimate `len(der)*4` → `(len(der)-38)*8`
+  (was ~2.6x too low, falsely flagging every 2048/3072-bit key as weak)
+- **cis_benchmark** PASS_MIN_LEN validator matched line numbers, not the actual value
+  (false-positive "password length OK" even when set to 5)
+- **cupp_wordlist** raw comma-separated keywords string leaked into password base
+  (generated nonsense candidates like `"dog,cat,hacker123"`)
+- **API key** comparison now uses `hmac.compare_digest` (timing-safe)
+- **API** RequestValidationError returns 422 (was downgraded to 500); internal errors
+  no longer leak file paths or SQL details to clients
+- **db.py** all 10 connection sites wrapped in `try/finally` (connection leak on exception)
+- 6 vacuous test assertions strengthened with real value checks
 
 ### Added
-- 7 regression tests: attack_chain URL normalization (3) + cors_test session_set (2)
+- 8 regression tests: attack_chain URL normalization (3) + cors_test session_set (2)
   + outputs key contract (1) + unknown step graceful handling (1)
+  + scan_diff detects removed ports (1)
 
 ## [1.7.1] — 2026-05-10
 
