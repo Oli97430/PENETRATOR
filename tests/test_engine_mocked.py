@@ -1094,3 +1094,654 @@ class TestCorsSessionSet:
 
         # session_set must have been reached via the break path
         assert "last_cors_result" in E._session
+
+
+# ===================================================================
+#  Port Scanner
+# ===================================================================
+class TestScanPorts:
+    @patch("gui.engine._check_port")
+    @patch("socket.gethostbyname")
+    def test_finds_open_port(self, mock_dns, mock_check):
+        mock_dns.return_value = "93.184.216.34"
+        mock_check.side_effect = lambda ip, port, timeout: port == 80
+
+        result = E.scan_ports("example.com", 79, 81, 4, 1.0, _log)
+
+        assert 80 in result
+        assert 79 not in result
+
+    @patch("socket.gethostbyname")
+    def test_dns_failure_returns_empty(self, mock_dns):
+        mock_dns.side_effect = socket.gaierror("nxdomain")
+
+        result = E.scan_ports("bad.host", 1, 100, 4, 1.0, _log)
+
+        assert result == []
+
+    @patch("gui.engine._check_port")
+    @patch("socket.gethostbyname")
+    def test_sets_session_keys(self, mock_dns, mock_check):
+        mock_dns.return_value = "1.2.3.4"
+        mock_check.return_value = True
+
+        E.scan_ports("target.com", 443, 443, 1, 1.0, _log)
+
+        assert E._session["last_target"] == "target.com"
+        assert 443 in E._session["last_open_ports"]
+
+
+# ===================================================================
+#  Security Headers Check
+# ===================================================================
+class TestCheckSecurityHeaders:
+    @patch("requests.get")
+    def test_reports_present_headers(self, mock_get):
+        mock_get.return_value = _mock_response(headers={
+            "Strict-Transport-Security": "max-age=31536000",
+            "Content-Security-Policy": "default-src 'self'",
+            "X-Frame-Options": "DENY",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Permissions-Policy": "geolocation=()",
+            "X-XSS-Protection": "1; mode=block",
+        })
+
+        result = E.check_security_headers("http://secure.com", _log)
+
+        assert result["Strict-Transport-Security"] == "max-age=31536000"
+        assert result["X-Frame-Options"] == "DENY"
+
+    @patch("requests.get")
+    def test_reports_missing_headers(self, mock_get):
+        mock_get.return_value = _mock_response(headers={})
+
+        result = E.check_security_headers("http://bare.com", _log)
+
+        assert result["Strict-Transport-Security"] is None
+        assert result["Content-Security-Policy"] is None
+
+    @patch("requests.get")
+    def test_connection_error_returns_empty(self, mock_get):
+        import requests as _req
+        mock_get.side_effect = _req.ConnectionError("refused")
+
+        result = E.check_security_headers("http://down.com", _log)
+
+        assert result == {}
+
+
+# ===================================================================
+#  Subdomain Finder
+# ===================================================================
+class TestFindSubdomains:
+    @patch("socket.gethostbyname")
+    def test_returns_resolved_subdomains(self, mock_dns):
+        def resolver(name):
+            if name.startswith("www.") or name.startswith("mail."):
+                return "93.184.216.34"
+            raise socket.gaierror("nxdomain")
+
+        mock_dns.side_effect = resolver
+
+        result = E.find_subdomains("example.com", 4, _log)
+
+        assert isinstance(result, list)
+        assert len(result) >= 1
+        # Each entry is a tuple of (subdomain, ip)
+        names = [t[0] for t in result]
+        assert "www" in names or "mail" in names
+
+    @patch("socket.gethostbyname")
+    def test_all_fail_returns_empty(self, mock_dns):
+        mock_dns.side_effect = socket.gaierror("nxdomain")
+
+        result = E.find_subdomains("nope.example.com", 4, _log)
+
+        assert result == []
+
+    @patch("socket.gethostbyname")
+    def test_sets_session_key(self, mock_dns):
+        mock_dns.return_value = "1.2.3.4"
+
+        E.find_subdomains("example.com", 2, _log)
+
+        assert isinstance(E._session.get("last_subdomains"), list)
+
+
+# ===================================================================
+#  Directory Buster
+# ===================================================================
+class TestBuster:
+    @patch("requests.Session")
+    def test_finds_existing_paths(self, mock_session_cls):
+        sess = MagicMock()
+        mock_session_cls.return_value = sess
+
+        def head_side(url, **kw):
+            if "admin" in url:
+                return _mock_response(status_code=200)
+            return _mock_response(status_code=404)
+
+        sess.head.side_effect = head_side
+
+        result = E.buster("http://test.com", ["admin", "nope"], 2, _log)
+
+        assert len(result) >= 1
+        urls = [url for _, url in result]
+        assert any("admin" in u for u in urls)
+
+    @patch("requests.Session")
+    def test_no_paths_found(self, mock_session_cls):
+        sess = MagicMock()
+        mock_session_cls.return_value = sess
+        sess.head.return_value = _mock_response(status_code=404)
+
+        result = E.buster("http://test.com", ["x", "y"], 2, _log)
+
+        assert result == []
+
+
+# ===================================================================
+#  SQL Injection Detect
+# ===================================================================
+class TestSqliDetect:
+    @patch("requests.Session")
+    def test_detects_sql_error(self, mock_session_cls):
+        sess = MagicMock()
+        mock_session_cls.return_value = sess
+        sess.get.return_value = _mock_response(
+            text="You have an error in your SQL syntax near '\\''",
+        )
+
+        result = E.sqli_detect("http://test.com/page?id=1", _log)
+
+        assert len(result) >= 1
+        # Each finding is (param, payload, signature)
+        assert result[0][0] == "id"
+
+    @patch("requests.Session")
+    def test_no_params_returns_empty(self, mock_session_cls):
+        result = E.sqli_detect("http://test.com/page", _log)
+
+        assert result == []
+
+    @patch("requests.Session")
+    def test_no_errors_returns_empty(self, mock_session_cls):
+        sess = MagicMock()
+        mock_session_cls.return_value = sess
+        sess.get.return_value = _mock_response(text="normal page content")
+
+        result = E.sqli_detect("http://test.com/?q=hello", _log)
+
+        assert result == []
+
+
+# ===================================================================
+#  XSS Reflected
+# ===================================================================
+class TestXssReflected:
+    @patch("requests.Session")
+    def test_detects_reflected_payload(self, mock_session_cls):
+        sess = MagicMock()
+        mock_session_cls.return_value = sess
+
+        # Reflect the exact payload back in the body
+        def get_side(url, **kw):
+            from urllib.parse import parse_qs, urlparse
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            q_val = params.get("q", [""])[0]
+            return _mock_response(text=f"<html>Result: {q_val}</html>")
+
+        sess.get.side_effect = get_side
+
+        result = E.xss_reflected("http://test.com/search?q=test", _log)
+
+        assert len(result) >= 1
+        assert result[0][0] == "q"
+
+    @patch("requests.Session")
+    def test_no_params_returns_empty(self, mock_session_cls):
+        result = E.xss_reflected("http://test.com/page", _log)
+
+        assert result == []
+
+
+# ===================================================================
+#  WAF Detection
+# ===================================================================
+class TestWafDetect:
+    @patch("requests.get")
+    def test_detects_cloudflare(self, mock_get):
+        resp = _mock_response(headers={"cf-ray": "abc123", "Server": "cloudflare"})
+        jar = MagicMock()
+        jar.__iter__ = MagicMock(return_value=iter([]))
+        resp.cookies = jar
+        mock_get.return_value = resp
+
+        result = E.waf_detect("http://test.com", _log)
+
+        assert "Cloudflare" in result
+
+    @patch("requests.get")
+    def test_detects_generic_waf_block(self, mock_get):
+        call_count = [0]
+
+        def side_effect(url, **kw):
+            call_count[0] += 1
+            resp = _mock_response(
+                status_code=200 if call_count[0] == 1 else 403,
+                headers={},
+            )
+            jar = MagicMock()
+            jar.__iter__ = MagicMock(return_value=iter([]))
+            resp.cookies = jar
+            return resp
+
+        mock_get.side_effect = side_effect
+
+        result = E.waf_detect("http://test.com", _log)
+
+        assert any("Generic WAF" in r for r in result)
+
+    @patch("requests.get")
+    def test_no_waf_detected(self, mock_get):
+        resp = _mock_response(headers={})
+        jar = MagicMock()
+        jar.__iter__ = MagicMock(return_value=iter([]))
+        resp.cookies = jar
+        mock_get.return_value = resp
+
+        result = E.waf_detect("http://clean.com", _log)
+
+        assert result == []
+
+
+# ===================================================================
+#  Open Redirect Test
+# ===================================================================
+class TestOpenRedirectTest:
+    @patch("requests.Session")
+    def test_detects_redirect_to_evil(self, mock_session_cls):
+        sess = MagicMock()
+        mock_session_cls.return_value = sess
+
+        def get_side(url, **kw):
+            if "evil.example.com" in url:
+                return _mock_response(
+                    status_code=302,
+                    headers={"Location": "https://evil.example.com/pwned"},
+                )
+            return _mock_response(status_code=200, headers={})
+
+        sess.get.side_effect = get_side
+
+        result = E.open_redirect_test(
+            "http://test.com/redirect?url=http://safe.com", _log,
+        )
+
+        assert len(result) >= 1
+        assert result[0][0] == "url"
+
+    @patch("requests.Session")
+    def test_no_params_returns_empty(self, mock_session_cls):
+        result = E.open_redirect_test("http://test.com/page", _log)
+
+        assert result == []
+
+
+# ===================================================================
+#  Executive Report
+# ===================================================================
+class TestExecutiveReport:
+    def test_generates_nonempty_report(self):
+        E._session["last_open_ports"] = [22, 80, 443]
+        E._session["last_subdomains"] = [("www", "1.2.3.4")]
+        E._session["last_buster_paths"] = []
+
+        report = E.executive_report("example.com", _log)
+
+        assert isinstance(report, str)
+        assert len(report) > 0
+        assert "example.com" in report
+
+    def test_includes_port_info(self):
+        E._session["last_open_ports"] = [21, 80, 3389]
+        E._session["last_subdomains"] = []
+        E._session["last_buster_paths"] = []
+
+        report = E.executive_report("target.com", _log)
+
+        assert "CRITICAL" in report or "FTP" in report or "RDP" in report
+
+    def test_empty_session_still_produces_report(self):
+        E._session["last_open_ports"] = []
+        E._session["last_subdomains"] = []
+        E._session["last_buster_paths"] = []
+
+        report = E.executive_report("empty.com", _log)
+
+        assert "empty.com" in report
+        assert "PENETRATOR" in report
+
+
+# ===================================================================
+#  Auto Correlate
+# ===================================================================
+class TestAutoCorrelate:
+    def test_high_risk_ports_increase_score(self):
+        E._session["last_open_ports"] = [21, 23, 80, 445]
+        E._session["last_subdomains"] = []
+        E._session["last_buster_paths"] = []
+
+        result = E.auto_correlate(_log)
+
+        assert result["score"] >= 30
+        assert any("High-risk" in f for f in result["findings"])
+
+    def test_sensitive_paths_increase_score(self):
+        E._session["last_open_ports"] = []
+        E._session["last_subdomains"] = []
+        E._session["last_buster_paths"] = ["/admin/", "/.git/config"]
+
+        result = E.auto_correlate(_log)
+
+        assert result["score"] >= 25
+        assert any("Sensitive" in f for f in result["findings"])
+
+    def test_empty_session_returns_info_grade(self):
+        E._session["last_open_ports"] = []
+        E._session["last_subdomains"] = []
+        E._session["last_buster_paths"] = []
+
+        result = E.auto_correlate(_log)
+
+        assert result["score"] == 0
+        assert result["grade"] == "INFO"
+        assert result["findings"] == []
+
+
+# ===================================================================
+#  Privilege Escalation Checklist
+# ===================================================================
+class TestPrivescChecklist:
+    @patch("subprocess.run")
+    def test_returns_platform_and_checks(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="some output", returncode=0)
+
+        result = E.privesc_checklist("linux", _log)
+
+        assert result["platform"] == "linux"
+        assert isinstance(result["checks"], list)
+        assert len(result["checks"]) >= 1
+
+    @patch("subprocess.run")
+    def test_windows_platform(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="info", returncode=0)
+
+        result = E.privesc_checklist("windows", _log)
+
+        assert result["platform"] == "windows"
+        assert isinstance(result["checks"], list)
+
+    @patch("subprocess.run")
+    def test_handles_timeout(self, mock_run):
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="cmd", timeout=15)
+
+        result = E.privesc_checklist("linux", _log)
+
+        assert all(c["status"] == "timeout" for c in result["checks"])
+
+
+# ===================================================================
+#  Payload Encoder (pure function)
+# ===================================================================
+class TestEncodePayload:
+    def test_all_encoding_types_present(self):
+        result = E.encode_payload("<script>alert(1)</script>")
+
+        assert "Base64" in result
+        assert "Hex" in result
+        assert "URL-encoded" in result
+        assert "PowerShell UTF16LE B64" in result
+
+    def test_base64_roundtrip(self):
+        import base64
+        text = "test payload"
+        result = E.encode_payload(text)
+
+        decoded = base64.b64decode(result["Base64"]).decode()
+        assert decoded == text
+
+    def test_hex_roundtrip(self):
+        text = "hello"
+        result = E.encode_payload(text)
+
+        decoded = bytes.fromhex(result["Hex"]).decode()
+        assert decoded == text
+
+
+# ===================================================================
+#  Homoglyph Detection
+# ===================================================================
+class TestHomoglyphDetect:
+    @patch("socket.gethostbyname")
+    def test_finds_registered_variants(self, mock_dns):
+        def resolver(name):
+            # Pretend one homoglyph variant is registered
+            if name.startswith("g") and name != "google.com":
+                return "1.2.3.4"
+            raise socket.gaierror("nxdomain")
+
+        mock_dns.side_effect = resolver
+
+        result = E.homoglyph_detect("google.com", _log)
+
+        assert isinstance(result, list)
+        assert len(result) >= 1
+
+    @patch("socket.gethostbyname")
+    def test_no_variants_registered(self, mock_dns):
+        mock_dns.side_effect = socket.gaierror("nxdomain")
+
+        result = E.homoglyph_detect("example.com", _log)
+
+        assert result == []
+
+
+# ===================================================================
+#  HTTP Repeater
+# ===================================================================
+class TestHttpRepeat:
+    @patch("requests.request")
+    def test_returns_response_structure(self, mock_req):
+        mock_req.return_value = _mock_response(
+            text="OK response body",
+            status_code=200,
+            headers={"Content-Type": "text/html"},
+        )
+        mock_req.return_value.reason = "OK"
+        mock_req.return_value.content = b"OK response body"
+
+        result = E.http_repeat("GET", "http://test.com", "", "", _log)
+
+        assert result["status"] == 200
+        assert result["reason"] == "OK"
+        assert "body" in result
+        assert "headers" in result
+
+    @patch("requests.request")
+    def test_custom_headers_and_post(self, mock_req):
+        mock_req.return_value = _mock_response(
+            text="created", status_code=201, headers={},
+        )
+        mock_req.return_value.reason = "Created"
+        mock_req.return_value.content = b"created"
+
+        result = E.http_repeat(
+            "POST", "http://test.com/api",
+            "Authorization: Bearer tok\nX-Custom: val",
+            '{"key":"value"}', _log,
+        )
+
+        assert result["status"] == 201
+        call_kw = mock_req.call_args
+        assert call_kw[1]["headers"]["Authorization"] == "Bearer tok"
+
+    @patch("requests.request")
+    def test_connection_error_returns_empty(self, mock_req):
+        import requests as _req
+        mock_req.side_effect = _req.ConnectionError("refused")
+
+        result = E.http_repeat("GET", "http://down.com", "", "", _log)
+
+        assert result == {}
+
+
+# ===================================================================
+#  TLS Scanner
+# ===================================================================
+class TestTlsScan:
+    @patch("socket.create_connection")
+    @patch("ssl.create_default_context")
+    def test_returns_cert_info(self, mock_ctx_factory, mock_conn):
+        # Build the mock chain: context -> wrap_socket -> ssock
+        mock_ctx = MagicMock()
+        mock_ctx_factory.return_value = mock_ctx
+
+        mock_ssock = MagicMock()
+        mock_ssock.getpeercert.return_value = {
+            "subject": [[("commonName", "example.com")]],
+            "issuer": [[("commonName", "DigiCert")]],
+            "subjectAltName": [("DNS", "example.com"), ("DNS", "*.example.com")],
+            "notAfter": "Dec 31 23:59:59 2026 GMT",
+        }
+        mock_ssock.cipher.return_value = ("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256)
+        mock_ssock.version.return_value = "TLSv1.3"
+
+        # wrap_socket returns a context-manager yielding ssock
+        mock_ctx.wrap_socket.return_value.__enter__ = MagicMock(return_value=mock_ssock)
+        mock_ctx.wrap_socket.return_value.__exit__ = MagicMock(return_value=False)
+
+        # socket.create_connection returns a context-manager yielding raw sock
+        mock_raw_sock = MagicMock()
+        mock_conn.return_value.__enter__ = MagicMock(return_value=mock_raw_sock)
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = E.tls_scan("example.com", 443, _log)
+
+        assert result["host"] == "example.com"
+        assert result["tls_version"] == "TLSv1.3"
+        assert result["subject_cn"] == "example.com"
+        assert result["issuer_cn"] == "DigiCert"
+        assert "example.com" in result["sans"]
+
+    @patch("socket.create_connection")
+    @patch("ssl.create_default_context")
+    def test_handshake_failure(self, mock_ctx_factory, mock_conn):
+        mock_ctx = MagicMock()
+        mock_ctx_factory.return_value = mock_ctx
+
+        mock_conn.return_value.__enter__ = MagicMock(side_effect=Exception("handshake failed"))
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = E.tls_scan("bad.host", 443, _log)
+
+        assert result["host"] == "bad.host"
+        assert result["port"] == 443
+        # Should not have tls_version since handshake failed
+        assert "tls_version" not in result
+
+
+# ===================================================================
+#  Async variant tests (with aiohttp mocked out → fall back to sync)
+# ===================================================================
+
+class _AiohttpHider:
+    """Context manager that hides aiohttp from import machinery."""
+    def __init__(self):
+        self._saved = None
+        self._had_key = False
+
+    def __enter__(self):
+        import builtins
+        import sys
+        self._had_key = "aiohttp" in sys.modules
+        self._saved = sys.modules.pop("aiohttp", None)
+        self._real_import = builtins.__import__
+
+        def _mock_import(name, *a, **kw):
+            if name == "aiohttp":
+                raise ImportError("mocked: no aiohttp")
+            return self._real_import(name, *a, **kw)
+
+        builtins.__import__ = _mock_import
+        return self
+
+    def __exit__(self, *exc):
+        import builtins
+        import sys
+        builtins.__import__ = self._real_import
+        if self._had_key and self._saved is not None:
+            sys.modules["aiohttp"] = self._saved
+
+
+class TestSqliDetectAsync:
+    """Test sqli_detect_async."""
+
+    def test_fallback_without_aiohttp(self):
+        """Without aiohttp, should delegate to sqli_detect."""
+        with _AiohttpHider():
+            with patch.object(E, "sqli_detect",
+                              return_value=[("id", "'", "mysql")]) as m:
+                result = E.sqli_detect_async("http://x.com/?id=1", 20, _log)
+                m.assert_called_once()
+                assert result == [("id", "'", "mysql")]
+
+    def test_no_params_returns_empty(self):
+        assert E.sqli_detect_async("http://x.com/", 20, _log) == []
+
+
+class TestXssReflectedAsync:
+    """Test xss_reflected_async."""
+
+    def test_fallback_without_aiohttp(self):
+        with _AiohttpHider():
+            with patch.object(E, "xss_reflected",
+                              return_value=[("q", "<script>")]) as m:
+                result = E.xss_reflected_async("http://x.com/?q=1", 20, _log)
+                m.assert_called_once()
+                assert result == [("q", "<script>")]
+
+    def test_no_params_returns_empty(self):
+        assert E.xss_reflected_async("http://x.com/", 20, _log) == []
+
+
+class TestCorsTestAsync:
+    """Test cors_test_async."""
+
+    def test_fallback_without_aiohttp(self):
+        with _AiohttpHider():
+            with patch.object(E, "cors_test",
+                              return_value={"findings": []}) as m:
+                result = E.cors_test_async("http://x.com/", 5, _log)
+                m.assert_called_once()
+                assert result == {"findings": []}
+
+
+class TestOpenRedirectTestAsync:
+    """Test open_redirect_test_async."""
+
+    def test_fallback_without_aiohttp(self):
+        with _AiohttpHider():
+            with patch.object(E, "open_redirect_test",
+                              return_value=[("url", "//evil.example.com")]) as m:
+                result = E.open_redirect_test_async(
+                    "http://x.com/?url=foo", 20, _log)
+                m.assert_called_once()
+                assert result == [("url", "//evil.example.com")]
+
+    def test_no_params_returns_empty(self):
+        assert E.open_redirect_test_async("http://x.com/", 20, _log) == []

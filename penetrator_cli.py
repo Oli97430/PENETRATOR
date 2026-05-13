@@ -85,7 +85,7 @@ def language_menu(parent: Menu) -> None:
         table = Table(border_style="cyan", show_header=False, box=None)
         table.add_column(style="cyan bold", justify="right", width=4)
         table.add_column(style="white bold")
-        for idx, code in enumerate(("en", "fr", "zh"), start=1):
+        for idx, code in enumerate(("en", "fr", "zh", "es", "de"), start=1):
             marker = " ←" if code == i18n.language else ""
             table.add_row(f"[{idx}]", f"{t(f'menu.language.{code}')}{marker}")
         table.add_row("[0]", f"[red]{t('ui.back')}[/]")
@@ -97,7 +97,7 @@ def language_menu(parent: Menu) -> None:
         choice = console.input(f"[bold cyan]{t('ui.choose_option')} > [/]").strip()
         if choice == "0":
             return
-        mapping = {"1": "en", "2": "fr", "3": "zh"}
+        mapping = {"1": "en", "2": "fr", "3": "zh", "4": "es", "5": "de"}
         if choice in mapping:
             i18n.save_preferred(mapping[choice])
             print_success(t("menu.language.saved"))
@@ -263,6 +263,56 @@ def _run_cli_compliance(root: Menu) -> None:
     menu.run()
 
 
+def _run_cli_phase11(root: Menu) -> None:
+    menu = Menu(title_key="menu.main.phase11", parent=root)
+    menu.add(MenuItem("modules.phase11.csrf_analyze", lambda: (
+        _engine.csrf_analyze(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.cookie_audit", lambda: (
+        _engine.cookie_audit(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.ssti_scan", lambda: (
+        _engine.ssti_scan(
+            ask_input(t("ui.url")),
+            ask_input(t("modules.phase11.param_name")),
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.jwt_none_attack", lambda: (
+        _engine.jwt_none_attack(ask_input(t("modules.phase11.jwt_token")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.jwt_key_confusion", lambda: (
+        _engine.jwt_key_confusion(
+            ask_input(t("modules.phase11.jwt_token")),
+            ask_input(t("modules.phase11.public_key")),
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.oauth2_test", lambda: (
+        _engine.oauth2_test(
+            ask_input(t("ui.url")),
+            ask_input(t("modules.phase11.redirect_uri")),
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.subdomain_permutation", lambda: (
+        _engine.subdomain_permutation(ask_input(t("ui.domain")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.vhost_discover", lambda: (
+        _engine.vhost_discover(
+            ask_input(t("modules.phase11.ip_address")),
+            ask_input(t("modules.phase11.wordlist")),
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.js_endpoint_extract", lambda: (
+        _engine.js_endpoint_extract(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.param_discovery", lambda: (
+        _engine.param_discovery(
+            ask_input(t("ui.url")),
+            ask_input(t("modules.phase11.wordlist")) or None,
+            cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.tech_fingerprint", lambda: (
+        _engine.tech_fingerprint(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.dns_rebinding_check", lambda: (
+        _engine.dns_rebinding_check(ask_input(t("ui.domain")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.http_smuggling", lambda: (
+        _engine.http_smuggling_detect(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.prototype_pollution", lambda: (
+        _engine.prototype_pollution_scan(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.add(MenuItem("modules.phase11.insecure_deser", lambda: (
+        _engine.insecure_deser_test(ask_input(t("ui.url")), cli_log) or pause())))
+    menu.run()
+
+
 def build_main_menu() -> Menu:
     root = Menu(title_key="menu.main.title")
     root.add(MenuItem(
@@ -350,6 +400,10 @@ def build_main_menu() -> Menu:
         lambda: _run_cli_compliance(root),
         "menu.main.compliance_desc", color="red"))
     root.add(MenuItem(
+        "menu.main.phase11",
+        lambda: _run_cli_phase11(root),
+        "menu.main.phase11_desc", color="red"))
+    root.add(MenuItem(
         "menu.main.settings",
         lambda: build_settings_menu(root).run(),
         "menu.main.settings_desc", color="cyan"))
@@ -369,11 +423,13 @@ def first_run_language_picker() -> None:
         "[bold]Select your language[/]  /  [bold]Choisissez votre langue[/]  /  [bold]请选择语言[/]\n\n"
         "[cyan]1[/]  English\n"
         "[cyan]2[/]  Français\n"
-        "[cyan]3[/]  中文",
+        "[cyan]3[/]  中文\n"
+        "[cyan]4[/]  Español\n"
+        "[cyan]5[/]  Deutsch",
         border_style="cyan",
     ))
     choice = console.input("> ").strip()
-    mapping = {"1": "en", "2": "fr", "3": "zh"}
+    mapping = {"1": "en", "2": "fr", "3": "zh", "4": "es", "5": "de"}
     i18n.save_preferred(mapping.get(choice, "en"))
 
 

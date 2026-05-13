@@ -129,7 +129,9 @@
       "blue_team": "Blue Team / Verteidigung",
       "blue_team_desc": "Honeypots, Log-Analyse, YARA, Baselines",
       "compliance": "Compliance & Standards",
-      "compliance_desc": "OWASP, PCI-DSS, CIS-Benchmarks"
+      "compliance_desc": "OWASP, PCI-DSS, CIS-Benchmarks",
+      "phase11": "Phase 11 Erweiterte Werkzeuge",
+      "phase11_desc": "CSRF, JWT, SSTI, OAuth2, DNS-Rebinding, Smuggling"
     },
     "settings": {
       "title": "Einstellungen",
@@ -149,6 +151,8 @@
       "en": "Englisch (English)",
       "fr": "Französisch (Français)",
       "zh": "Chinesisch (中文)",
+      "es": "Spanisch (Español)",
+      "de": "Deutsch",
       "saved": "Sprache gespeichert"
     }
   },
@@ -683,6 +687,30 @@
       "cis_benchmark": "CIS-Benchmark",
       "cis_benchmark_desc": "Systemkonfiguration gegen CIS-Standards prüfen",
       "platform": "Plattform"
+    },
+    "phase11": {
+      "title": "Phase 11 Erweiterte Werkzeuge",
+      "csrf_analyze": "CSRF-Analysator",
+      "cookie_audit": "Cookie-Audit",
+      "ssti_scan": "SSTI-Scanner",
+      "jwt_none_attack": "JWT-None-Angriff",
+      "jwt_key_confusion": "JWT-Schlüsselverwirrung",
+      "oauth2_test": "OAuth2-Test",
+      "subdomain_permutation": "Subdomain-Permutation",
+      "vhost_discover": "Virtueller Host-Erkennung",
+      "js_endpoint_extract": "JS-Endpunkt-Extraktor",
+      "param_discovery": "Parameter-Erkennung",
+      "tech_fingerprint": "Technologie-Fingerabdruck",
+      "dns_rebinding_check": "DNS-Rebinding-Prüfung",
+      "http_smuggling": "HTTP-Smuggling-Erkennung",
+      "prototype_pollution": "Prototype-Pollution-Scanner",
+      "insecure_deser": "Unsichere Deserialisierung-Test",
+      "param_name": "Parametername",
+      "jwt_token": "JWT-Token",
+      "public_key": "Öffentlicher Schlüssel (PEM-Text)",
+      "redirect_uri": "Weiterleitungs-URI",
+      "ip_address": "IP-Adresse",
+      "wordlist": "Wortliste (kommagetrennt oder Dateipfad)"
     },
     "about": {
       "title": "Über PENETRATOR",

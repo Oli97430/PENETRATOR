@@ -35,6 +35,7 @@ def set_stop_check(fn: Callable[[], bool] | None) -> None:
 
 
 def _should_stop() -> bool:
+    """Return True if the user has requested cancellation."""
     return _stop_check() if _stop_check is not None else False
 
 
@@ -48,10 +49,12 @@ _session: dict[str, object] = {
 
 
 def session_get(key: str, default=None):
+    """Retrieve a value from the cross-tool session memory."""
     return _session.get(key, default)
 
 
 def session_set(key: str, value) -> None:
+    """Store a value in the cross-tool session memory."""
     _session[key] = value
 
 
@@ -62,6 +65,7 @@ def session_dump() -> dict:
 
 
 def session_restore(snapshot: dict) -> None:
+    """Restore session memory from a previously saved snapshot."""
     if isinstance(snapshot, dict):
         _session.update(snapshot)
 
@@ -247,6 +251,7 @@ DELIMITER = "<<<PEN_END>>>"
 # Information Gathering
 # ---------------------------------------------------------------------------
 def get_service(port: int) -> str:
+    """Return the service name for a TCP port number."""
     try:
         return socket.getservbyport(port, "tcp")
     except OSError:
@@ -254,6 +259,7 @@ def get_service(port: int) -> str:
 
 
 def _check_port(target: str, port: int, timeout: float) -> bool:
+    """Return True if a TCP connection to target:port succeeds."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
@@ -264,6 +270,7 @@ def _check_port(target: str, port: int, timeout: float) -> bool:
 
 def scan_ports(target: str, start: int, end: int, threads: int, timeout: float,
                log: Logger) -> list[int]:
+    """Scan a range of TCP ports on target using a thread pool."""
     # Clamp port range to valid values
     start = max(1, min(start, 65535))
     end = max(start, min(end, 65535))
@@ -297,6 +304,7 @@ def scan_ports(target: str, start: int, end: int, threads: int, timeout: float,
 
 
 def resolve_host(host: str, log: Logger) -> list[str]:
+    """Resolve a hostname to its IP addresses."""
     try:
         _, _, ips = socket.gethostbyname_ex(host)
     except socket.gaierror as exc:
@@ -308,6 +316,7 @@ def resolve_host(host: str, log: Logger) -> list[str]:
 
 
 def whois_lookup(domain: str, log: Logger) -> dict:
+    """Perform a WHOIS lookup on a domain and return parsed fields."""
     try:
         import whois  # type: ignore
     except ImportError:
@@ -330,6 +339,7 @@ def whois_lookup(domain: str, log: Logger) -> dict:
 
 
 def dns_lookup(domain: str, log: Logger) -> dict[str, list[str]]:
+    """Query common DNS record types for a domain."""
     try:
         import dns.resolver  # type: ignore
     except ImportError:
@@ -340,7 +350,8 @@ def dns_lookup(domain: str, log: Logger) -> dict[str, list[str]]:
         try:
             answers = dns.resolver.resolve(domain, rtype, lifetime=5)
             values = [str(rdata) for rdata in answers]
-        except Exception:
+        except Exception as exc:
+            log(f"  [-] {rtype}: {exc}", "muted")
             continue
         out[rtype] = values
         for value in values:
@@ -351,7 +362,9 @@ def dns_lookup(domain: str, log: Logger) -> dict[str, list[str]]:
 
 
 def find_subdomains(domain: str, threads: int, log: Logger) -> list[tuple[str, str]]:
+    """Brute-force common subdomains and return those that resolve."""
     def check(sub: str) -> tuple[str, str] | None:
+        """Resolve a single subdomain and return (sub, ip) or None."""
         try:
             ip = socket.gethostbyname(f"{sub}.{domain}")
             return sub, ip
@@ -378,6 +391,7 @@ def find_subdomains(domain: str, threads: int, log: Logger) -> list[tuple[str, s
 
 
 def fetch_headers(url: str, log: Logger) -> dict:
+    """Fetch HTTP response headers from a URL."""
     import requests
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
@@ -398,6 +412,7 @@ def fetch_headers(url: str, log: Logger) -> dict:
 # Password tools
 # ---------------------------------------------------------------------------
 def identify_hash(value: str) -> list[str]:
+    """Identify possible hash algorithms matching a given hash string."""
     value = value.strip()
     matches = [name for name, pat in HASH_SIGNATURES if pat.match(value)]
     if "MD5" in matches and "NTLM" in matches:
@@ -407,6 +422,7 @@ def identify_hash(value: str) -> list[str]:
 
 def crack_hash(value: str, algo: str, wordlist_path: str,
                log: Logger) -> str | None:
+    """Attempt to crack a hash by comparing against a wordlist."""
     value = value.strip().lower()
     algo = algo.lower()
     if algo not in SUPPORTED_HASH_ALGOS:
@@ -439,6 +455,7 @@ def crack_hash(value: str, algo: str, wordlist_path: str,
 
 
 def password_strength(pw: str) -> tuple[int, str]:
+    """Score a password's strength and return (score, label)."""
     score = 0
     if len(pw) >= 8: score += 1
     if len(pw) >= 12: score += 1
@@ -449,6 +466,7 @@ def password_strength(pw: str) -> tuple[int, str]:
 
 
 def generate_password(length: int, upper: bool, digits: bool, symbols: bool) -> str:
+    """Generate a cryptographically random password with the given character classes."""
     alphabet = string.ascii_lowercase
     if upper:   alphabet += string.ascii_uppercase
     if digits:  alphabet += string.digits
@@ -460,6 +478,7 @@ def generate_password(length: int, upper: bool, digits: bool, symbols: bool) -> 
 # Web attacks
 # ---------------------------------------------------------------------------
 def buster(url: str, paths: list[str], threads: int, log: Logger) -> list[tuple[int, str]]:
+    """Brute-force web paths and return discovered endpoints with status codes."""
     import requests
     from urllib.parse import urljoin
     if not url.startswith(("http://", "https://")):
@@ -467,10 +486,11 @@ def buster(url: str, paths: list[str], threads: int, log: Logger) -> list[tuple[
     url = url.rstrip("/") + "/"
 
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
     found: list[tuple[int, str]] = []
 
     def check(p: str) -> tuple[int, str] | None:
+        """Probe a single path and return (status, url) if interesting."""
         target = urljoin(url, p)
         try:
             resp = sess.head(target, timeout=5, allow_redirects=False)
@@ -501,6 +521,7 @@ def buster(url: str, paths: list[str], threads: int, log: Logger) -> list[tuple[
 
 
 def check_security_headers(url: str, log: Logger) -> dict:
+    """Check a URL for the presence of recommended security headers."""
     import requests
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
@@ -523,6 +544,7 @@ def check_security_headers(url: str, log: Logger) -> dict:
 
 
 def fetch_discovery_files(url: str, log: Logger) -> dict:
+    """Fetch common discovery files (robots.txt, sitemap.xml, security.txt)."""
     import requests
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
@@ -545,6 +567,7 @@ def fetch_discovery_files(url: str, log: Logger) -> dict:
 
 
 def detect_tech(url: str, log: Logger) -> dict:
+    """Detect web technologies via response headers and body signatures."""
     import requests
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
@@ -591,6 +614,7 @@ def detect_tech(url: str, log: Logger) -> dict:
 # SQL injection detection (light)
 # ---------------------------------------------------------------------------
 def sqli_detect(url: str, log: Logger) -> list[tuple[str, str, str]]:
+    """Test URL query parameters for SQL injection error signatures."""
     import requests
     from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
     parsed = urlparse(url)
@@ -629,6 +653,7 @@ def sqli_detect(url: str, log: Logger) -> list[tuple[str, str, str]]:
 # XSS encoding + reflected scanner
 # ---------------------------------------------------------------------------
 def xss_encodings(payload: str) -> dict[str, str]:
+    """Return multiple encoded forms of an XSS payload."""
     data = payload.encode()
     return {
         "URL": urllib.parse.quote(payload, safe=""),
@@ -642,6 +667,7 @@ def xss_encodings(payload: str) -> dict[str, str]:
 
 
 def xss_reflected(url: str, log: Logger) -> list[tuple[str, str]]:
+    """Test URL query parameters for reflected XSS vulnerabilities."""
     import requests
     from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
     parsed = urlparse(url)
@@ -679,6 +705,7 @@ def xss_reflected(url: str, log: Logger) -> list[tuple[str, str]]:
 # Payload encoders
 # ---------------------------------------------------------------------------
 def encode_payload(text: str) -> dict[str, str]:
+    """Encode a payload in multiple formats (Base64, hex, URL, etc.)."""
     data = text.encode()
     return {
         "Base64": base64.b64encode(data).decode(),
@@ -694,10 +721,12 @@ def encode_payload(text: str) -> dict[str, str]:
 # Steganography (LSB + whitespace)
 # ---------------------------------------------------------------------------
 def _text_to_bits(text: str) -> str:
+    """Convert a UTF-8 string to a binary bit string."""
     return "".join(f"{byte:08b}" for byte in text.encode("utf-8"))
 
 
 def _bits_to_text(bits: str) -> str:
+    """Convert a binary bit string back to a UTF-8 string."""
     out = bytearray()
     for i in range(0, len(bits) - 7, 8):
         out.append(int(bits[i:i + 8], 2))
@@ -705,6 +734,7 @@ def _bits_to_text(bits: str) -> str:
 
 
 def image_hide(cover: str, message: str, output: str, log: Logger) -> str | None:
+    """Hide a message in a cover image using LSB steganography."""
     try:
         from PIL import Image
     except ImportError:
@@ -744,6 +774,7 @@ def image_hide(cover: str, message: str, output: str, log: Logger) -> str | None
 
 
 def image_extract(stego: str, log: Logger) -> str | None:
+    """Extract an LSB-hidden message from a stego image."""
     try:
         from PIL import Image
     except ImportError:
@@ -773,6 +804,7 @@ def image_extract(stego: str, log: Logger) -> str | None:
 
 
 def ws_hide(cover: str, message: str, output: str, log: Logger) -> str | None:
+    """Hide a message in a text file using whitespace steganography."""
     src = Path(cover)
     if not src.is_file():
         log(f"[-] Cover not found: {cover}", "err")
@@ -794,6 +826,7 @@ def ws_hide(cover: str, message: str, output: str, log: Logger) -> str | None:
 
 
 def ws_extract(stego: str, log: Logger) -> str | None:
+    """Extract a whitespace-hidden message from a stego text file."""
     src = Path(stego)
     if not src.is_file():
         log(f"[-] File not found: {stego}", "err")
@@ -815,6 +848,7 @@ def ws_extract(stego: str, log: Logger) -> str | None:
 # Reverse engineering + forensic
 # ---------------------------------------------------------------------------
 def extract_strings(path: str, min_len: int, log: Logger) -> list[tuple[int, str]]:
+    """Extract printable ASCII strings of at least min_len from a binary file."""
     p = Path(path)
     if not p.is_file():
         log(f"[-] File not found: {path}", "err")
@@ -837,6 +871,7 @@ def extract_strings(path: str, min_len: int, log: Logger) -> list[tuple[int, str
 
 
 def parse_pe(path: str, log: Logger) -> dict:
+    """Parse a Windows PE executable header and section table."""
     p = Path(path)
     if not p.is_file():
         log(f"[-] File not found: {path}", "err")
@@ -873,6 +908,7 @@ def parse_pe(path: str, log: Logger) -> dict:
 
 
 def hex_dump(path: str, offset: int, length: int, log: Logger) -> str:
+    """Display a hex + ASCII dump of a file region."""
     p = Path(path)
     if not p.is_file():
         log(f"[-] File not found: {path}", "err")
@@ -892,6 +928,7 @@ def hex_dump(path: str, offset: int, length: int, log: Logger) -> str:
 
 
 def file_hashes(path: str, log: Logger) -> dict[str, str]:
+    """Compute MD5, SHA-1, SHA-256, and SHA-512 hashes of a file."""
     p = Path(path)
     if not p.is_file():
         log(f"[-] File not found: {path}", "err")
@@ -909,6 +946,7 @@ def file_hashes(path: str, log: Logger) -> dict[str, str]:
 
 
 def read_exif(path: str, log: Logger) -> dict:
+    """Read EXIF metadata from an image file."""
     try:
         from PIL import Image, ExifTags
     except ImportError:
@@ -936,6 +974,7 @@ def read_exif(path: str, log: Logger) -> dict:
 
 
 def identify_magic(path: str, log: Logger) -> str | None:
+    """Identify a file type by its magic bytes signature."""
     p = Path(path)
     if not p.is_file():
         log(f"[-] File not found: {path}", "err")
@@ -951,6 +990,7 @@ def identify_magic(path: str, log: Logger) -> str | None:
 
 
 def compare_files(a: str, b: str, log: Logger) -> dict:
+    """Compare two files byte-by-byte and report the first difference offset."""
     pa, pb = Path(a), Path(b)
     if not pa.is_file() or not pb.is_file():
         log("[-] One or both files not found", "err")
@@ -973,6 +1013,7 @@ def compare_files(a: str, b: str, log: Logger) -> dict:
 # OSINT
 # ---------------------------------------------------------------------------
 def verify_email(email: str, log: Logger) -> dict:
+    """Validate email syntax and check for MX records on the domain."""
     m = EMAIL_REGEX.match(email.strip())
     if not m:
         log("[-] Invalid email syntax", "err")
@@ -994,6 +1035,7 @@ def verify_email(email: str, log: Logger) -> dict:
 
 
 def ip_geolocate(target: str, log: Logger) -> dict:
+    """Look up geolocation data for an IP address or domain."""
     import requests
     try:
         resp = requests.get(f"http://ip-api.com/json/{target}", timeout=8)
@@ -1012,6 +1054,7 @@ def ip_geolocate(target: str, log: Logger) -> dict:
 
 
 def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
+    """Check whether a username exists on popular platforms."""
     import requests
     sess = requests.Session()
     sess.headers.update({
@@ -1020,6 +1063,7 @@ def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
     })
 
     def probe(site: str, tmpl: str) -> tuple[str, str, int]:
+        """Check a single site for the username and return (site, url, status)."""
         url = tmpl.format(u=username)
         try:
             r = sess.get(url, timeout=8, allow_redirects=True)
@@ -1045,6 +1089,7 @@ def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
 
 
 def phone_info(number: str, log: Logger) -> dict:
+    """Parse a phone number and return carrier, region, and timezone info."""
     try:
         import phonenumbers
         from phonenumbers import carrier, geocoder, timezone
@@ -1071,6 +1116,7 @@ def phone_info(number: str, log: Logger) -> dict:
 
 
 def reverse_dns(ip: str, log: Logger) -> tuple[str, list[str], list[str]] | None:
+    """Perform a reverse DNS lookup on an IP address."""
     try:
         name, aliases, addrs = socket.gethostbyaddr(ip)
     except socket.herror as exc:
@@ -1087,6 +1133,7 @@ def reverse_dns(ip: str, log: Logger) -> tuple[str, list[str], list[str]] | None
 # Wordlist generation
 # ---------------------------------------------------------------------------
 def cupp_wordlist(values: dict[str, str]) -> set[str]:
+    """Generate a CUPP-style targeted wordlist from personal info values."""
     skip_keys = {"birthday", "keywords"}
     base = {v.strip() for k, v in values.items() if k not in skip_keys and v.strip()}
     birthday = values.get("birthday", "").strip()
@@ -1108,10 +1155,12 @@ def cupp_wordlist(values: dict[str, str]) -> set[str]:
 
 
 def combinator(left: list[str], right: list[str]) -> set[str]:
+    """Combine every element of left with every element of right."""
     return {a + b for a in left for b in right}
 
 
 def leet_mutate(words: list[str], per_word: int = 30) -> set[str]:
+    """Generate leet-speak mutations of each word."""
     out: set[str] = set()
     for word in words:
         positions = [LEET_MAP.get(ch.lower(), [ch]) for ch in word]
@@ -1123,6 +1172,7 @@ def leet_mutate(words: list[str], per_word: int = 30) -> set[str]:
 
 
 def pattern_generate(charset: str, min_len: int, max_len: int) -> Iterable[str]:
+    """Yield all combinations of charset characters for lengths min_len..max_len."""
     for length in range(min_len, max_len + 1):
         for combo in itertools.product(charset, repeat=length):
             yield "".join(combo)
@@ -1309,8 +1359,8 @@ def tls_scan(host: str, port: int, log: Logger) -> dict:
             with _s.create_connection((host, port), timeout=4) as s2:
                 with ctx2.wrap_socket(s2, server_hostname=host):
                     legacy_supported.append(name)
-        except Exception:
-            pass
+        except Exception as exc:
+            log(f"  [-] {name}: {exc}", "muted")
     out["legacy_supported"] = legacy_supported
     if legacy_supported:
         log(f"[!] Legacy protocols supported: {', '.join(legacy_supported)}", "warn")
@@ -1323,6 +1373,7 @@ def tls_scan(host: str, port: int, log: Logger) -> dict:
 # JWT toolkit
 # ---------------------------------------------------------------------------
 def _b64url_decode(data: str) -> bytes:
+    """Decode a base64url string with auto-padding."""
     pad = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode(data + pad)
 
@@ -1473,8 +1524,8 @@ def check_subdomain_takeover(host: str, log: Logger) -> dict:
             cname = str(answers[0]).rstrip(".")
             out["cname"] = cname
             log(f"  CNAME -> {cname}", "info")
-        except Exception:
-            log("  no CNAME", "muted")
+        except Exception as exc:
+            log(f"  no CNAME ({exc})", "muted")
     except ImportError:
         log("[-] dnspython not installed", "err"); return out
 
@@ -1520,6 +1571,7 @@ def scan_ports_async(target: str, start: int, end: int, concurrency: int,
     sem = None  # set inside the coroutine
 
     async def probe(port: int) -> None:
+        """Attempt a TCP connection to a single port."""
         async with sem:
             if _should_stop():
                 return
@@ -1529,16 +1581,17 @@ def scan_ports_async(target: str, start: int, end: int, concurrency: int,
                 writer.close()
                 try:
                     await writer.wait_closed()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log(f"  [-] {port}/tcp writer close: {exc}", "muted")
                 open_ports.append(port)
                 log(f"[+] {port:>5}/tcp   {get_service(port)}", "ok")
             except (asyncio.TimeoutError, OSError, ConnectionError):
                 pass
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {port}/tcp: {exc}", "muted")
 
     async def runner() -> None:
+        """Launch all port probes with a concurrency semaphore."""
         nonlocal sem
         sem = asyncio.Semaphore(concurrency)
         await asyncio.gather(*(probe(p) for p in range(start, end + 1)),
@@ -1584,6 +1637,7 @@ def buster_async(url: str, paths: list[str], concurrency: int,
         f"concurrency={concurrency}", "cyan")
 
     async def runner() -> None:
+        """Run all directory probes concurrently via aiohttp."""
         sem = asyncio.Semaphore(concurrency)
         timeout = aiohttp.ClientTimeout(total=8)
         async with aiohttp.ClientSession(
@@ -1591,6 +1645,7 @@ def buster_async(url: str, paths: list[str], concurrency: int,
             headers={"User-Agent": "PENETRATOR/1.0"},
         ) as session:
             async def probe(path: str) -> None:
+                """Probe a single path via HEAD/GET."""
                 async with sem:
                     if _should_stop():
                         return
@@ -1603,7 +1658,8 @@ def buster_async(url: str, paths: list[str], concurrency: int,
                             async with session.get(target,
                                                    allow_redirects=False) as r:
                                 status = r.status
-                    except Exception:
+                    except Exception as exc:
+                        log(f"  [-] {exc}", "muted")
                         return
                     if status in (200, 201, 202, 204, 301, 302, 307, 401, 403):
                         found.append((status, target))
@@ -1640,6 +1696,7 @@ def find_subdomains_async(domain: str, concurrency: int,
     loop = None  # set in runner
 
     async def probe(sub: str) -> None:
+        """Resolve a single subdomain asynchronously."""
         if _should_stop():
             return
         host = f"{sub}.{domain}"
@@ -1654,11 +1711,13 @@ def find_subdomains_async(domain: str, concurrency: int,
             pass
 
     async def runner() -> None:
+        """Launch all subdomain probes with a concurrency semaphore."""
         nonlocal loop
         loop = asyncio.get_running_loop()
         sem = asyncio.Semaphore(concurrency)
 
         async def bounded(sub):
+            """Wrap probe() with a semaphore for concurrency control."""
             async with sem:
                 await probe(sub)
 
@@ -1675,6 +1734,324 @@ def find_subdomains_async(domain: str, concurrency: int,
     log(f"[*] {len(found)} subdomain(s) in {time.time()-t0:.2f}s (async)",
         "cyan")
     return sorted(found)
+
+
+# ---------------------------------------------------------------------------
+# Async SQLi detection
+# ---------------------------------------------------------------------------
+def sqli_detect_async(url: str, concurrency: int,
+                      log: Logger) -> list[tuple[str, str, str]]:
+    """Async SQL injection scanner — tests all params × payloads concurrently."""
+    import asyncio
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+    try:
+        import aiohttp
+    except ImportError:
+        log("[!] aiohttp not installed — falling back to threaded sqli_detect", "warn")
+        return sqli_detect(url, log)
+
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query))
+    if not params:
+        log("[-] URL has no query parameters to test.", "err")
+        return []
+
+    findings: list[tuple[str, str, str]] = []
+    log(f"[*] Async SQLi scan on {len(params)} param(s) × {len(SQL_PAYLOADS)} payloads "
+        f"concurrency={concurrency}", "cyan")
+
+    async def runner() -> None:
+        """Run all SQLi probes concurrently via aiohttp."""
+        sem = asyncio.Semaphore(concurrency)
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": random_ua()},
+        ) as session:
+            async def probe(param: str, payload: str) -> None:
+                """Test one parameter with one payload."""
+                async with sem:
+                    if _should_stop():
+                        return
+                    mutated = dict(params)
+                    mutated[param] = params[param] + payload
+                    test_url = urlunparse(
+                        parsed._replace(query=urlencode(mutated)))
+                    try:
+                        async with session.get(test_url,
+                                               allow_redirects=False) as r:
+                            body = (await r.text()).lower()
+                    except Exception as exc:
+                        log(f"  [-] {exc}", "muted")
+                        return
+                    for sig in SQL_ERROR_SIGNATURES:
+                        if sig in body:
+                            findings.append((param, payload, sig))
+                            log(f"[+] {param}  payload={payload}  indicator={sig}",
+                                "ok")
+                            break
+
+            tasks = [probe(p, pl) for p in params for pl in SQL_PAYLOADS]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(runner())
+        finally:
+            loop.close()
+    log(f"[*] SQLi scan done in {time.time() - t0:.2f}s (async)", "cyan")
+    if not findings:
+        log("[!] No obvious SQL injection indicator found", "warn")
+    session_set("last_sqli_result", findings)
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Async XSS reflected scanner
+# ---------------------------------------------------------------------------
+def xss_reflected_async(url: str, concurrency: int,
+                        log: Logger) -> list[tuple[str, str]]:
+    """Async reflected XSS scanner — tests all params × payloads concurrently."""
+    import asyncio
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+    try:
+        import aiohttp
+    except ImportError:
+        log("[!] aiohttp not installed — falling back to threaded xss_reflected", "warn")
+        return xss_reflected(url, log)
+
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query))
+    if not params:
+        log("[-] URL has no query parameters to test.", "err")
+        return []
+
+    findings: list[tuple[str, str]] = []
+    marker = "penetx1337"
+    log(f"[*] Async XSS scan on {len(params)} param(s) × {len(XSS_PAYLOADS_BASIC)} payloads "
+        f"concurrency={concurrency}", "cyan")
+
+    async def runner() -> None:
+        """Run all XSS probes concurrently via aiohttp."""
+        sem = asyncio.Semaphore(concurrency)
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": random_ua()},
+        ) as session:
+            async def probe(param: str, payload: str) -> None:
+                """Test one parameter with one payload for reflection."""
+                async with sem:
+                    if _should_stop():
+                        return
+                    marked = payload.replace("alert(1)", f"alert('{marker}')")
+                    mutated = dict(params)
+                    mutated[param] = marked
+                    test_url = urlunparse(
+                        parsed._replace(
+                            query=urlencode(mutated, safe="<>\"'/=()")))
+                    try:
+                        async with session.get(test_url,
+                                               allow_redirects=False) as r:
+                            body = await r.text()
+                    except Exception as exc:
+                        log(f"  [-] {exc}", "muted")
+                        return
+                    if marked in body:
+                        findings.append((param, marked))
+                        log(f"[+] Reflected: {marked}", "ok")
+
+            tasks = [probe(p, pl) for p in params for pl in XSS_PAYLOADS_BASIC]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(runner())
+        finally:
+            loop.close()
+    log(f"[*] XSS scan done in {time.time() - t0:.2f}s (async)", "cyan")
+    if not findings:
+        log("[!] No reflected payloads detected", "warn")
+    session_set("last_xss_result", findings)
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Async CORS misconfiguration tester
+# ---------------------------------------------------------------------------
+def cors_test_async(url: str, concurrency: int,
+                    log: Logger) -> dict:
+    """Async CORS misconfiguration tester — probes origins concurrently."""
+    import asyncio
+    from urllib.parse import urlparse
+    try:
+        import aiohttp
+    except ImportError:
+        log("[!] aiohttp not installed — falling back to threaded cors_test", "warn")
+        return cors_test(url, log)
+
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    parsed = urlparse(url)
+    origins = [
+        "https://evil.com",
+        f"https://{parsed.hostname}.evil.com",
+        "null",
+        f"http://attacker.{parsed.hostname}",
+        "https://" + (parsed.hostname or "") + ".attacker.io",
+    ]
+    findings: list[dict] = []
+    log(f"[*] Async CORS test {url}  ({len(origins)} origins)", "cyan")
+
+    async def runner() -> None:
+        """Probe all origins concurrently."""
+        sem = asyncio.Semaphore(concurrency)
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": random_ua()},
+        ) as session:
+            async def probe(origin: str) -> None:
+                """Test one origin header for CORS misconfiguration."""
+                async with sem:
+                    if _should_stop():
+                        return
+                    try:
+                        async with session.get(
+                            url,
+                            headers={"Origin": origin},
+                            allow_redirects=True,
+                        ) as r:
+                            acao = r.headers.get("Access-Control-Allow-Origin")
+                            acac = r.headers.get("Access-Control-Allow-Credentials")
+                    except Exception as exc:
+                        log(f"  [-] {origin}: {exc}", "muted")
+                        return
+                    risky = False
+                    notes: list[str] = []
+                    if acao == origin:
+                        risky = True
+                        notes.append("reflected origin")
+                    if acao == "*":
+                        notes.append("wildcard")
+                    if acac and acac.lower() == "true" and acao and acao != "*":
+                        notes.append("creds=true with non-wildcard ACAO")
+                        risky = True
+                    tag = "err" if risky else "info"
+                    log(f"  Origin={origin}  ACAO={acao}  ACAC={acac}  "
+                        f"{' / '.join(notes)}", tag)
+                    findings.append({"origin": origin, "acao": acao,
+                                     "acac": acac, "risky": risky,
+                                     "notes": notes})
+
+            await asyncio.gather(*(probe(o) for o in origins),
+                                 return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(runner())
+        finally:
+            loop.close()
+    risky_n = sum(1 for f in findings if f.get("risky"))
+    log(f"[*] {risky_n} risky CORS config(s) in {time.time() - t0:.2f}s (async)",
+        "warn" if risky_n else "ok")
+    result = {"findings": findings}
+    session_set("last_cors_result", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Async open-redirect tester
+# ---------------------------------------------------------------------------
+def open_redirect_test_async(url: str, concurrency: int,
+                             log: Logger) -> list[tuple[str, str]]:
+    """Async open-redirect scanner — tests params × payloads concurrently."""
+    import asyncio
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+    try:
+        import aiohttp
+    except ImportError:
+        log("[!] aiohttp not installed — falling back to threaded open_redirect_test",
+            "warn")
+        return open_redirect_test(url, log)
+
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query))
+    if not params:
+        log("[-] URL has no query parameters to test.", "err")
+        return []
+
+    redirect_payloads = [
+        "https://evil.example.com",
+        "//evil.example.com",
+        "/\\evil.example.com",
+        "https:%2f%2fevil.example.com",
+        "https://example.com@evil.example.com",
+    ]
+    findings: list[tuple[str, str]] = []
+    log(f"[*] Async redirect test on {len(params)} param(s) × "
+        f"{len(redirect_payloads)} payloads  concurrency={concurrency}", "cyan")
+
+    async def runner() -> None:
+        """Run all redirect probes concurrently."""
+        sem = asyncio.Semaphore(concurrency)
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": random_ua()},
+        ) as session:
+            async def probe(param: str, payload: str) -> None:
+                """Test one param+payload combo for open redirect."""
+                async with sem:
+                    if _should_stop():
+                        return
+                    mut = dict(params)
+                    mut[param] = payload
+                    test_url = urlunparse(
+                        parsed._replace(query=urlencode(mut)))
+                    try:
+                        async with session.get(
+                            test_url,
+                            allow_redirects=False,
+                        ) as r:
+                            loc = r.headers.get("Location", "")
+                    except Exception as exc:
+                        log(f"  [-] {exc}", "muted")
+                        return
+                    if loc and "evil.example.com" in loc:
+                        findings.append((param, payload))
+                        log(f"[+] Redirect via {param}={payload}  "
+                            f"Location={loc}", "err")
+
+            tasks = [probe(p, pl) for p in params for pl in redirect_payloads]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    t0 = time.time()
+    try:
+        asyncio.run(runner())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(runner())
+        finally:
+            loop.close()
+    log(f"[*] Redirect test done in {time.time() - t0:.2f}s (async)", "cyan")
+    if not findings:
+        log("[+] No open-redirect indicator found", "ok")
+    session_set("last_open_redirect", findings)
+    return findings
 
 
 # ---------------------------------------------------------------------------
@@ -2452,6 +2829,7 @@ def race_condition_test(url: str, method: str, body: str, count: int,
     results: list[dict] = []
 
     def fire(_):
+        """Send one concurrent request and return the result dict."""
         try:
             resp = sess.request(method, url,
                                 data=body.encode() if body else None,
@@ -2540,7 +2918,8 @@ def websocket_fuzz(url: str, log: Logger) -> list[dict]:
             ws.send(payload)
             ws.settimeout(3)
             resp = ws.recv()
-        except Exception:
+        except Exception as exc:
+            log(f"  [-] {exc}", "muted")
             resp = ""
         indicators = []
         resp_lower = resp.lower() if resp else ""
@@ -2562,8 +2941,8 @@ def websocket_fuzz(url: str, log: Logger) -> list[dict]:
 
     try:
         ws.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log(f"  [-] {exc}", "muted")
     log(f"[*] {len(findings)} interesting response(s)", "warn" if findings else "ok")
     return findings
 
@@ -2622,8 +3001,8 @@ def udp_scan(host: str, ports: list[int] | None, log: Logger) -> list[dict]:
         finally:
             try:
                 sock.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
 
     log(f"[*] {len(open_ports)} open UDP port(s) found", "cyan")
     return open_ports
@@ -2814,8 +3193,8 @@ def snmp_walk(host: str, community: str, log: Logger) -> list[dict]:
                 if idx > 0 and idx + 1 < len(data):
                     slen = data[idx + 1]
                     desc = data[idx + 2:idx + 2 + slen].decode("utf-8", errors="replace")
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
             if desc:
                 log(f"    sysDescr: {desc[:200]}", "info")
             results.append({"community": comm, "response_len": len(data),
@@ -2827,8 +3206,8 @@ def snmp_walk(host: str, community: str, log: Logger) -> list[dict]:
         finally:
             try:
                 sock.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
 
     log(f"[*] {len(results)} valid community string(s)", "warn" if results else "ok")
     return results
@@ -3596,8 +3975,8 @@ def ldap_anonymous_check(host: str, port: int, log: Logger) -> dict:
                 for entry in conn.entries[:10]:
                     log(f"  {entry.entry_dn}", "info")
                     results["entries"].append(str(entry.entry_dn))
-        except Exception:
-            pass
+        except Exception as exc:
+            log(f"  [-] {exc}", "muted")
 
         # Try common base DNs
         for base in ["dc=local", "dc=corp", "dc=domain", "dc=company"]:
@@ -3612,8 +3991,8 @@ def ldap_anonymous_check(host: str, port: int, log: Logger) -> dict:
                         log(f"    {entry}", "info")
                         results["entries"].append(str(entry))
                     break
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
         conn.unbind()
     except ImportError:
         # Fallback: raw socket
@@ -3765,8 +4144,8 @@ def kerberos_enum(host: str, domain: str, userlist: list[str],
                         log(f"  {username} — not found", "muted")
                     else:
                         log(f"  {username} — {err_str[:60]}", "muted")
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
     else:
         log("[!] impacket not installed — basic port check only", "warn")
         try:
@@ -4291,7 +4670,7 @@ def auto_correlate(log: Logger) -> dict:
 # 3. Scheduled Scan Diff
 # ---------------------------------------------------------------------------
 def scan_diff(current: dict, previous: dict, log: Logger) -> dict:
-    """Compare two scan snapshots and highlight changes."""
+    """Compare two scan snapshots and highlight port/subdomain changes."""
     log("[*] Comparing scan results...", "cyan")
     diff: dict = {"new": [], "removed": [], "changed": []}
 
@@ -4363,8 +4742,8 @@ def smart_payload_gen(payload: str, waf_type: str, log: Logger) -> list[str]:
             if variant != payload and variant not in variants:
                 variants.append(variant)
                 log(f"  → {variant[:100]}", "ok")
-        except Exception:
-            pass
+        except Exception as exc:
+            log(f"  [-] {exc}", "muted")
 
     # Always add generic encodings too
     if waf_key != "generic":
@@ -4374,8 +4753,8 @@ def smart_payload_gen(payload: str, waf_type: str, log: Logger) -> list[str]:
                 if variant not in variants:
                     variants.append(variant)
                     log(f"  → {variant[:100]}", "info")
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
 
     log(f"[*] {len(variants)} variant(s) generated", "cyan")
     return variants
@@ -4445,7 +4824,7 @@ def executive_report(target: str, log: Logger) -> str:
     lines.append("- Enable security headers (HSTS, CSP, X-Frame-Options)")
     lines.append("")
     lines.append("---")
-    lines.append("Generated by PENETRATOR v1.7.2")
+    lines.append("Generated by PENETRATOR v1.8.0")
 
     report = "\n".join(lines)
     for line in lines:
@@ -4480,6 +4859,7 @@ def set_proxy(proxy_url: str, log: Logger) -> dict:
 
 
 def get_proxy() -> dict:
+    """Return the current proxy configuration dict."""
     return _proxy_config
 
 
@@ -4920,7 +5300,8 @@ def email_security_check(domain: str, log: Logger) -> dict:
                         break
                 if results["dkim"]:
                     break
-        except Exception:
+        except Exception as exc:
+            log(f"  [-] {exc}", "muted")
             continue
 
     if not results["dkim"]:
@@ -5193,6 +5574,7 @@ def mqtt_test(broker: str, port: int, log: Logger) -> dict:
     connected = False
 
     def on_connect(client, userdata, flags, rc):
+        """Handle MQTT connection result."""
         nonlocal connected
         if rc == 0:
             connected = True
@@ -5203,6 +5585,7 @@ def mqtt_test(broker: str, port: int, log: Logger) -> dict:
             log(f"[-] Connection refused (rc={rc})", "ok")
 
     def on_message(client, userdata, msg):
+        """Log received MQTT messages and track topics."""
         topic = msg.topic
         payload = msg.payload.decode("utf-8", errors="replace")[:200]
         messages.append(f"{topic}: {payload}")
@@ -5388,8 +5771,8 @@ def honeypot_detect(host: str, ports: list[int], log: Logger) -> dict:
             try:
                 banner = sock.recv(1024).decode("utf-8", errors="replace").strip()
                 banners.append(banner)
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"  [-] {exc}", "muted")
             sock.close()
         except OSError:
             pass
@@ -5585,8 +5968,8 @@ def baseline_snapshot(log: Logger) -> dict:
                 procs.add(parts[0].strip('"'))
         snapshot["processes"] = sorted(procs)
         log(f"  Running processes: {len(snapshot['processes'])}", "info")
-    except Exception:
-        pass
+    except Exception as exc:
+        log(f"  [-] {exc}", "muted")
 
     return snapshot
 
@@ -5873,10 +6256,12 @@ def jwt_none_attack(token: str, log: Logger) -> dict:
         return result
 
     def _b64u_decode(s: str) -> bytes:
+        """Decode a base64url string with auto-padding."""
         s += "=" * ((4 - len(s) % 4) % 4)
         return base64.urlsafe_b64decode(s)
 
     def _b64u_encode(b: bytes) -> str:
+        """Encode bytes to a base64url string without padding."""
         return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
     try:
@@ -5928,9 +6313,11 @@ def jwt_key_confusion(token: str, public_key: str, log: Logger) -> dict:
         return result
 
     def _b64u_encode(b: bytes) -> str:
+        """Encode bytes to a base64url string without padding."""
         return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
     def _b64u_decode(s: str) -> bytes:
+        """Decode a base64url string with auto-padding."""
         s += "=" * ((4 - len(s) % 4) % 4)
         return base64.urlsafe_b64decode(s)
 

@@ -129,7 +129,9 @@
       "blue_team": "Blue Team / Defense",
       "blue_team_desc": "Honeypots, log analysis, YARA, baselines",
       "compliance": "Compliance & Standards",
-      "compliance_desc": "OWASP, PCI-DSS, CIS benchmarks"
+      "compliance_desc": "OWASP, PCI-DSS, CIS benchmarks",
+      "phase11": "Phase 11 Advanced Tools",
+      "phase11_desc": "CSRF, JWT, SSTI, OAuth2, DNS rebinding, smuggling"
     },
     "settings": {
       "title": "Settings",
@@ -149,6 +151,8 @@
       "en": "English",
       "fr": "French (Français)",
       "zh": "Chinese (中文)",
+      "es": "Spanish (Español)",
+      "de": "German (Deutsch)",
       "saved": "Language saved"
     }
   },
@@ -683,6 +687,30 @@
       "cis_benchmark": "CIS Benchmark",
       "cis_benchmark_desc": "Check system configuration against CIS standards",
       "platform": "Platform"
+    },
+    "phase11": {
+      "title": "Phase 11 Advanced Tools",
+      "csrf_analyze": "CSRF Analyzer",
+      "cookie_audit": "Cookie Audit",
+      "ssti_scan": "SSTI Scanner",
+      "jwt_none_attack": "JWT None Attack",
+      "jwt_key_confusion": "JWT Key Confusion",
+      "oauth2_test": "OAuth2 Tester",
+      "subdomain_permutation": "Subdomain Permutation",
+      "vhost_discover": "Virtual Host Discovery",
+      "js_endpoint_extract": "JS Endpoint Extractor",
+      "param_discovery": "Parameter Discovery",
+      "tech_fingerprint": "Technology Fingerprint",
+      "dns_rebinding_check": "DNS Rebinding Check",
+      "http_smuggling": "HTTP Smuggling Detect",
+      "prototype_pollution": "Prototype Pollution Scanner",
+      "insecure_deser": "Insecure Deserialization Test",
+      "param_name": "Parameter name",
+      "jwt_token": "JWT token",
+      "public_key": "Public key (PEM text)",
+      "redirect_uri": "Redirect URI",
+      "ip_address": "IP address",
+      "wordlist": "Wordlist (comma-separated or file path)"
     },
     "about": {
       "title": "About PENETRATOR",

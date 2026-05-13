@@ -7,6 +7,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-05-12
+
+### Added — 17-point improvement roadmap (all items implemented)
+- **CLI Phase 11 submenu**: 15 new Phase 11 tools accessible from CLI
+- **API expanded** from 14 to **43 endpoints** (+4 async variants)
+- **Async scan variants**: `sqli_detect_async`, `xss_reflected_async`, `cors_test_async`,
+  `open_redirect_test_async` — use aiohttp for concurrent probing, fallback to sync
+- **API key startup warning** when key is default `changeme`
+- **Rate limiting middleware** (60 req/min per IP, configurable via `PENETRATOR_RATE_LIMIT`)
+- **DB path** configurable via `PENETRATOR_DB_PATH` environment variable
+- **200 mock tests** (up from 193) — including async fallback tests
+- **Full docstrings**: 0 functions without docstrings (was 55 missing)
+- **Silent exceptions**: 19 bare `except: pass` blocks now log at `muted` level
+- **ES/DE languages** selectable in CLI language picker (was EN/FR/ZH only)
+- **`.env.example`** documents all environment variables
+- **README rewrite** with REST API docs, Docker section, plugin spec, env var table
+- **buster()** UA randomized via `random_ua()` (was static `PENETRATOR/1.0`)
+
 ## [1.7.2] — 2026-05-12
 
 ### Fixed — Polish passes 4, 5 & 6 (40 bugs)

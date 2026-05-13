@@ -25,9 +25,20 @@ from gui import engine as E
 from gui.db import init_db
 
 
+import logging
+
+_logger = logging.getLogger("penetrator")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
+    if API_KEY == "changeme":
+        _logger.warning(
+            "⚠  PENETRATOR_API_KEY is set to the default 'changeme'. "
+            "Set a strong key via environment variable before exposing this service."
+        )
+    db_path = os.environ.get("PENETRATOR_DB_PATH")
+    init_db(db_path)
     yield
 
 
@@ -51,6 +62,38 @@ API_KEY = os.environ.get("PENETRATOR_API_KEY", "changeme")
 def verify_key(x_api_key: str = Header(...)):
     if not hmac.compare_digest(x_api_key, API_KEY):
         raise HTTPException(403, "Invalid API key")
+
+
+# ---------------------------------------------------------------------------
+# Simple in-memory rate limiter (no extra dependency)
+# ---------------------------------------------------------------------------
+import time as _time
+from collections import defaultdict
+from fastapi import Request
+
+_rate_store: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT = int(os.environ.get("PENETRATOR_RATE_LIMIT", "60"))  # req/min
+_RATE_WINDOW = 60.0  # seconds
+
+
+@app.middleware("http")
+async def _rate_limit_middleware(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+    client_ip = request.client.host if request.client else "unknown"
+    now = _time.time()
+    # Prune old entries
+    _rate_store[client_ip] = [
+        t for t in _rate_store[client_ip] if now - t < _RATE_WINDOW
+    ]
+    if len(_rate_store[client_ip]) >= _RATE_LIMIT:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Try again later."},
+            headers={"Retry-After": str(int(_RATE_WINDOW))},
+        )
+    _rate_store[client_ip].append(now)
+    return await call_next(request)
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +181,110 @@ class CvssRequest(BaseModel):
 
 class PhishingUrlRequest(BaseModel):
     url: str
+
+
+# --- Scan models (new) ---
+class HeadersRequest(BaseModel):
+    url: str
+
+
+class CorsRequest(BaseModel):
+    url: str
+
+
+class SubdomainFindRequest(BaseModel):
+    domain: str
+    threads: int = 50
+
+
+class BusterRequest(BaseModel):
+    url: str
+    threads: int = 50
+
+
+class WafRequest(BaseModel):
+    url: str
+
+
+class OpenRedirectRequest(BaseModel):
+    url: str
+
+
+class SqliRequest(BaseModel):
+    url: str
+
+
+class SsrfRequest(BaseModel):
+    url: str
+
+
+class LfiRequest(BaseModel):
+    url: str
+
+
+class CrlfRequest(BaseModel):
+    url: str
+
+
+class Oauth2Request(BaseModel):
+    url: str
+
+
+class DnsRebindingRequest(BaseModel):
+    domain: str
+
+
+class HttpSmugglingRequest(BaseModel):
+    url: str
+
+
+class PrototypePollutionRequest(BaseModel):
+    url: str
+
+
+class InsecureDeserRequest(BaseModel):
+    url: str
+
+
+# --- JWT models (new) ---
+class JwtBruteRequest(BaseModel):
+    token: str
+    wordlist: list[str] = []
+
+
+class JwtKeyConfusionRequest(BaseModel):
+    token: str
+    key_text: str
+
+
+# --- Tool models (new) ---
+class AttackChainRequest(BaseModel):
+    target: str
+    chain: list[str]
+
+
+class EncodePayloadRequest(BaseModel):
+    text: str
+
+
+class HashIdentifyRequest(BaseModel):
+    hash: str
+
+
+class PasswordStrengthRequest(BaseModel):
+    password: str
+
+
+class WhoisRequest(BaseModel):
+    domain: str
+
+
+class EmailCheckRequest(BaseModel):
+    domain: str
+
+
+class ExecutiveReportRequest(BaseModel):
+    target: str
 
 
 # --- Report models ---
@@ -248,6 +395,199 @@ def scan_xss_probe(req: XssProbeRequest, _=Depends(verify_key)):
         raise HTTPException(500, str(exc))
 
 
+@app.post("/scan/headers")
+def scan_headers(req: HeadersRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.check_security_headers(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/cors")
+def scan_cors(req: CorsRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.cors_test(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/subdomains")
+def scan_subdomains(req: SubdomainFindRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.find_subdomains(req.domain, req.threads, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/buster")
+def scan_buster(req: BusterRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.buster(req.url, E.DEFAULT_WEB_PATHS, req.threads, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/waf")
+def scan_waf(req: WafRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.waf_detect(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/open-redirect")
+def scan_open_redirect(req: OpenRedirectRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.open_redirect_test(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/sqli")
+def scan_sqli(req: SqliRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.sqli_detect(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/ssrf")
+def scan_ssrf(req: SsrfRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.ssrf_scan(req.url, "", log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/lfi")
+def scan_lfi(req: LfiRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.lfi_scan(req.url, "", log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/crlf")
+def scan_crlf(req: CrlfRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.crlf_test(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/oauth2")
+def scan_oauth2(req: Oauth2Request, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.oauth2_test(req.url, "", log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/dns-rebinding")
+def scan_dns_rebinding(req: DnsRebindingRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.dns_rebinding_check(req.domain, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/http-smuggling")
+def scan_http_smuggling(req: HttpSmugglingRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.http_smuggling_detect(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/prototype-pollution")
+def scan_prototype_pollution(req: PrototypePollutionRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.prototype_pollution_scan(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/insecure-deser")
+def scan_insecure_deser(req: InsecureDeserRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.insecure_deser_test(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Async scan endpoints (faster, uses aiohttp when available)
+# ---------------------------------------------------------------------------
+@app.post("/scan/sqli-async")
+def scan_sqli_async(req: SqliRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.sqli_detect_async(req.url, concurrency=30, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/xss-async")
+def scan_xss_async(req: XssProbeRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.xss_reflected_async(req.url, concurrency=30, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/cors-async")
+def scan_cors_async(req: CorsRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.cors_test_async(req.url, concurrency=10, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/scan/open-redirect-async")
+def scan_open_redirect_async(req: OpenRedirectRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.open_redirect_test_async(req.url, concurrency=20, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 # ---------------------------------------------------------------------------
 # JWT endpoints
 # ---------------------------------------------------------------------------
@@ -271,6 +611,36 @@ def jwt_none_attack(req: JwtNoneAttackRequest, _=Depends(verify_key)):
         raise HTTPException(500, str(exc))
 
 
+@app.post("/jwt/brute")
+def jwt_brute(req: JwtBruteRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        # Write the wordlist to a temp file if provided, else use empty path
+        wordlist_path = ""
+        if req.wordlist:
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False
+            )
+            tmp.write("\n".join(req.wordlist))
+            tmp.close()
+            wordlist_path = tmp.name
+        result = E.jwt_brute(req.token, wordlist_path, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/jwt/key-confusion")
+def jwt_key_confusion(req: JwtKeyConfusionRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.jwt_key_confusion(req.token, req.key_text, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Tool endpoints
 # ---------------------------------------------------------------------------
@@ -289,6 +659,74 @@ def tools_phishing_url(req: PhishingUrlRequest, _=Depends(verify_key)):
     log = LogCollector()
     try:
         result = E.phishing_url_analyze(req.url, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/tools/attack-chain")
+def tools_attack_chain(req: AttackChainRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.attack_chain(req.target, req.chain, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/tools/auto-correlate")
+def tools_auto_correlate(_=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.auto_correlate(log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/tools/executive-report")
+def tools_executive_report(req: ExecutiveReportRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.executive_report(req.target, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/tools/encode-payload")
+def tools_encode_payload(req: EncodePayloadRequest, _=Depends(verify_key)):
+    result = E.encode_payload(req.text)
+    return {"result": result}
+
+
+@app.post("/tools/hash-identify")
+def tools_hash_identify(req: HashIdentifyRequest, _=Depends(verify_key)):
+    result = E.identify_hash(req.hash)
+    return {"result": result}
+
+
+@app.post("/tools/password-strength")
+def tools_password_strength(req: PasswordStrengthRequest, _=Depends(verify_key)):
+    result = E.password_strength(req.password)
+    return {"result": result}
+
+
+@app.post("/tools/whois")
+def tools_whois(req: WhoisRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.whois_lookup(req.domain, log=log)
+        return {"result": result, "log": log.entries}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/tools/email-check")
+def tools_email_check(req: EmailCheckRequest, _=Depends(verify_key)):
+    log = LogCollector()
+    try:
+        result = E.email_security_check(req.domain, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
         raise HTTPException(500, str(exc))

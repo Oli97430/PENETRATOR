@@ -129,7 +129,9 @@
       "blue_team": "蓝队 / 防御",
       "blue_team_desc": "蜜罐、日志分析、YARA、基线",
       "compliance": "合规与标准",
-      "compliance_desc": "OWASP、PCI-DSS、CIS 基准"
+      "compliance_desc": "OWASP、PCI-DSS、CIS 基准",
+      "phase11": "第11阶段高级工具",
+      "phase11_desc": "CSRF、JWT、SSTI、OAuth2、DNS 重绑定、请求走私"
     },
     "settings": {
       "title": "设置",
@@ -149,6 +151,8 @@
       "en": "英语 (English)",
       "fr": "法语 (Français)",
       "zh": "中文",
+      "es": "西班牙语 (Español)",
+      "de": "德语 (Deutsch)",
       "saved": "语言已保存"
     }
   },
@@ -683,6 +687,30 @@
       "cis_benchmark": "CIS 基准",
       "cis_benchmark_desc": "根据 CIS 标准检查系统配置",
       "platform": "平台"
+    },
+    "phase11": {
+      "title": "第11阶段高级工具",
+      "csrf_analyze": "CSRF 分析器",
+      "cookie_audit": "Cookie 审计",
+      "ssti_scan": "SSTI 扫描器",
+      "jwt_none_attack": "JWT None 攻击",
+      "jwt_key_confusion": "JWT 密钥混淆",
+      "oauth2_test": "OAuth2 测试",
+      "subdomain_permutation": "子域名排列",
+      "vhost_discover": "虚拟主机发现",
+      "js_endpoint_extract": "JS 端点提取",
+      "param_discovery": "参数发现",
+      "tech_fingerprint": "技术指纹",
+      "dns_rebinding_check": "DNS 重绑定检查",
+      "http_smuggling": "HTTP 请求走私检测",
+      "prototype_pollution": "原型污染扫描",
+      "insecure_deser": "不安全反序列化测试",
+      "param_name": "参数名称",
+      "jwt_token": "JWT 令牌",
+      "public_key": "公钥 (PEM 文本)",
+      "redirect_uri": "重定向 URI",
+      "ip_address": "IP 地址",
+      "wordlist": "字典 (逗号分隔或文件路径)"
     },
     "about": {
       "title": "关于 PENETRATOR",

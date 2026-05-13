@@ -129,7 +129,9 @@
       "blue_team": "Blue Team / Défense",
       "blue_team_desc": "Honeypots, analyse de logs, YARA, baselines",
       "compliance": "Conformité & Standards",
-      "compliance_desc": "OWASP, PCI-DSS, benchmarks CIS"
+      "compliance_desc": "OWASP, PCI-DSS, benchmarks CIS",
+      "phase11": "Outils avancés Phase 11",
+      "phase11_desc": "CSRF, JWT, SSTI, OAuth2, DNS rebinding, smuggling"
     },
     "settings": {
       "title": "Paramètres",
@@ -149,6 +151,8 @@
       "en": "Anglais (English)",
       "fr": "Français",
       "zh": "Chinois (中文)",
+      "es": "Espagnol (Español)",
+      "de": "Allemand (Deutsch)",
       "saved": "Langue enregistrée"
     }
   },
@@ -683,6 +687,30 @@
       "cis_benchmark": "Benchmark CIS",
       "cis_benchmark_desc": "Vérifier la configuration système par rapport aux standards CIS",
       "platform": "Plateforme"
+    },
+    "phase11": {
+      "title": "Outils avancés Phase 11",
+      "csrf_analyze": "Analyseur CSRF",
+      "cookie_audit": "Audit de cookies",
+      "ssti_scan": "Scanner SSTI",
+      "jwt_none_attack": "Attaque JWT None",
+      "jwt_key_confusion": "Confusion de clé JWT",
+      "oauth2_test": "Test OAuth2",
+      "subdomain_permutation": "Permutation de sous-domaines",
+      "vhost_discover": "Découverte d'hôtes virtuels",
+      "js_endpoint_extract": "Extraction de points d'accès JS",
+      "param_discovery": "Découverte de paramètres",
+      "tech_fingerprint": "Empreinte technologique",
+      "dns_rebinding_check": "Vérification DNS Rebinding",
+      "http_smuggling": "Détection HTTP Smuggling",
+      "prototype_pollution": "Scanner Prototype Pollution",
+      "insecure_deser": "Test de désérialisation non sécurisée",
+      "param_name": "Nom du paramètre",
+      "jwt_token": "Jeton JWT",
+      "public_key": "Clé publique (texte PEM)",
+      "redirect_uri": "URI de redirection",
+      "ip_address": "Adresse IP",
+      "wordlist": "Liste de mots (séparés par virgules ou chemin de fichier)"
     },
     "about": {
       "title": "À propos de PENETRATOR",
