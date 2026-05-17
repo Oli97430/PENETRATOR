@@ -33,9 +33,13 @@ _logger = logging.getLogger("penetrator")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if API_KEY == "changeme":
-        _logger.warning(
+        _logger.critical(
             "⚠  PENETRATOR_API_KEY is set to the default 'changeme'. "
             "Set a strong key via environment variable before exposing this service."
+        )
+        raise RuntimeError(
+            "Refusing to start with default API key 'changeme'. "
+            "Set PENETRATOR_API_KEY environment variable."
         )
     db_path = os.environ.get("PENETRATOR_DB_PATH")
     init_db(db_path)
@@ -44,7 +48,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="PENETRATOR API",
-    version="1.7.2",
+    version="1.8.1",
     description="Penetration testing toolkit API",
     lifespan=lifespan,
 )
@@ -74,18 +78,31 @@ from fastapi import Request
 _rate_store: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT = int(os.environ.get("PENETRATOR_RATE_LIMIT", "60"))  # req/min
 _RATE_WINDOW = 60.0  # seconds
+_RATE_MAX_IPS = 10_000  # cap tracked IPs to prevent memory exhaustion
 
 
 @app.middleware("http")
 async def _rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/health":
         return await call_next(request)
-    client_ip = request.client.host if request.client else "unknown"
+    if not request.client:
+        return JSONResponse(status_code=400, content={"detail": "Unknown client"})
+    client_ip = request.client.host
     now = _time.time()
-    # Prune old entries
+    # Prune old entries for this IP
     _rate_store[client_ip] = [
         t for t in _rate_store[client_ip] if now - t < _RATE_WINDOW
     ]
+    # Evict key entirely if no recent requests (prevents unbounded growth)
+    if not _rate_store[client_ip]:
+        del _rate_store[client_ip]
+    # Hard cap on tracked IPs to prevent memory exhaustion via IP cycling
+    if client_ip not in _rate_store and len(_rate_store) >= _RATE_MAX_IPS:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Try again later."},
+            headers={"Retry-After": str(int(_RATE_WINDOW))},
+        )
     if len(_rate_store[client_ip]) >= _RATE_LIMIT:
         return JSONResponse(
             status_code=429,
@@ -323,16 +340,19 @@ def scan_ports(req: PortScanRequest, _=Depends(verify_key)):
             start, end = int(lo), int(hi)
             result = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
         else:
-            # Comma-separated list — scan min..max then filter to requested
-            port_set = {int(p) for p in parts.split(",")}
-            start, end = min(port_set), max(port_set)
-            all_open = E.scan_ports(req.target, start, end, threads=50, timeout=1.0, log=log)
-            result = [p for p in all_open if p in port_set]
+            # Comma-separated list — scan only the specified ports
+            port_list = sorted({int(p) for p in parts.split(",")})
+            # Scan each port individually using range(port, port)
+            result = []
+            for port in port_list:
+                if E.scan_ports(req.target, port, port, threads=1, timeout=1.0, log=log):
+                    result.append(port)
         return {"result": result, "log": log.entries}
     except ValueError as exc:
         raise HTTPException(400, f"Invalid port specification: {exc}")
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/tech-fingerprint")
@@ -342,7 +362,8 @@ def scan_tech_fingerprint(req: TechFingerprintRequest, _=Depends(verify_key)):
         result = E.tech_fingerprint(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/subdomain-perm")
@@ -352,7 +373,8 @@ def scan_subdomain_perm(req: SubdomainPermRequest, _=Depends(verify_key)):
         result = E.subdomain_permutation(req.domain, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/csrf")
@@ -362,7 +384,8 @@ def scan_csrf(req: CsrfRequest, _=Depends(verify_key)):
         result = E.csrf_analyze(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/cookie-audit")
@@ -372,7 +395,8 @@ def scan_cookie_audit(req: CookieAuditRequest, _=Depends(verify_key)):
         result = E.cookie_audit(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/ssti")
@@ -382,7 +406,8 @@ def scan_ssti(req: SstiRequest, _=Depends(verify_key)):
         result = E.ssti_scan(req.url, req.param, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/xss-probe")
@@ -392,7 +417,8 @@ def scan_xss_probe(req: XssProbeRequest, _=Depends(verify_key)):
         result = E.xss_reflected(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/headers")
@@ -402,7 +428,8 @@ def scan_headers(req: HeadersRequest, _=Depends(verify_key)):
         result = E.check_security_headers(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/cors")
@@ -412,7 +439,8 @@ def scan_cors(req: CorsRequest, _=Depends(verify_key)):
         result = E.cors_test(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/subdomains")
@@ -422,7 +450,8 @@ def scan_subdomains(req: SubdomainFindRequest, _=Depends(verify_key)):
         result = E.find_subdomains(req.domain, req.threads, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/buster")
@@ -432,7 +461,8 @@ def scan_buster(req: BusterRequest, _=Depends(verify_key)):
         result = E.buster(req.url, E.DEFAULT_WEB_PATHS, req.threads, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/waf")
@@ -442,7 +472,8 @@ def scan_waf(req: WafRequest, _=Depends(verify_key)):
         result = E.waf_detect(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/open-redirect")
@@ -452,7 +483,8 @@ def scan_open_redirect(req: OpenRedirectRequest, _=Depends(verify_key)):
         result = E.open_redirect_test(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/sqli")
@@ -462,7 +494,8 @@ def scan_sqli(req: SqliRequest, _=Depends(verify_key)):
         result = E.sqli_detect(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/ssrf")
@@ -472,7 +505,8 @@ def scan_ssrf(req: SsrfRequest, _=Depends(verify_key)):
         result = E.ssrf_scan(req.url, "", log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/lfi")
@@ -482,7 +516,8 @@ def scan_lfi(req: LfiRequest, _=Depends(verify_key)):
         result = E.lfi_scan(req.url, "", log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/crlf")
@@ -492,7 +527,8 @@ def scan_crlf(req: CrlfRequest, _=Depends(verify_key)):
         result = E.crlf_test(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/oauth2")
@@ -502,7 +538,8 @@ def scan_oauth2(req: Oauth2Request, _=Depends(verify_key)):
         result = E.oauth2_test(req.url, "", log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/dns-rebinding")
@@ -512,7 +549,8 @@ def scan_dns_rebinding(req: DnsRebindingRequest, _=Depends(verify_key)):
         result = E.dns_rebinding_check(req.domain, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/http-smuggling")
@@ -522,7 +560,8 @@ def scan_http_smuggling(req: HttpSmugglingRequest, _=Depends(verify_key)):
         result = E.http_smuggling_detect(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/prototype-pollution")
@@ -532,7 +571,8 @@ def scan_prototype_pollution(req: PrototypePollutionRequest, _=Depends(verify_ke
         result = E.prototype_pollution_scan(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/insecure-deser")
@@ -542,7 +582,8 @@ def scan_insecure_deser(req: InsecureDeserRequest, _=Depends(verify_key)):
         result = E.insecure_deser_test(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +596,8 @@ def scan_sqli_async(req: SqliRequest, _=Depends(verify_key)):
         result = E.sqli_detect_async(req.url, concurrency=30, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/xss-async")
@@ -565,7 +607,8 @@ def scan_xss_async(req: XssProbeRequest, _=Depends(verify_key)):
         result = E.xss_reflected_async(req.url, concurrency=30, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/cors-async")
@@ -575,7 +618,8 @@ def scan_cors_async(req: CorsRequest, _=Depends(verify_key)):
         result = E.cors_test_async(req.url, concurrency=10, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/scan/open-redirect-async")
@@ -585,7 +629,8 @@ def scan_open_redirect_async(req: OpenRedirectRequest, _=Depends(verify_key)):
         result = E.open_redirect_test_async(req.url, concurrency=20, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 # ---------------------------------------------------------------------------
@@ -598,7 +643,8 @@ def jwt_decode(req: JwtDecodeRequest, _=Depends(verify_key)):
         result = E.jwt_decode(req.token, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/jwt/none-attack")
@@ -608,15 +654,16 @@ def jwt_none_attack(req: JwtNoneAttackRequest, _=Depends(verify_key)):
         result = E.jwt_none_attack(req.token, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/jwt/brute")
 def jwt_brute(req: JwtBruteRequest, _=Depends(verify_key)):
     log = LogCollector()
+    wordlist_path = ""
     try:
         # Write the wordlist to a temp file if provided, else use empty path
-        wordlist_path = ""
         if req.wordlist:
             import tempfile
             tmp = tempfile.NamedTemporaryFile(
@@ -628,7 +675,11 @@ def jwt_brute(req: JwtBruteRequest, _=Depends(verify_key)):
         result = E.jwt_brute(req.token, wordlist_path, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
+    finally:
+        if wordlist_path:
+            os.unlink(wordlist_path)
 
 
 @app.post("/jwt/key-confusion")
@@ -638,7 +689,8 @@ def jwt_key_confusion(req: JwtKeyConfusionRequest, _=Depends(verify_key)):
         result = E.jwt_key_confusion(req.token, req.key_text, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 # ---------------------------------------------------------------------------
@@ -651,7 +703,8 @@ def tools_cvss(req: CvssRequest, _=Depends(verify_key)):
         result = E.cvss_calculate(req.vector, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/tools/phishing-url")
@@ -661,7 +714,8 @@ def tools_phishing_url(req: PhishingUrlRequest, _=Depends(verify_key)):
         result = E.phishing_url_analyze(req.url, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/tools/attack-chain")
@@ -671,7 +725,8 @@ def tools_attack_chain(req: AttackChainRequest, _=Depends(verify_key)):
         result = E.attack_chain(req.target, req.chain, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/tools/auto-correlate")
@@ -681,7 +736,8 @@ def tools_auto_correlate(_=Depends(verify_key)):
         result = E.auto_correlate(log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/tools/executive-report")
@@ -691,7 +747,8 @@ def tools_executive_report(req: ExecutiveReportRequest, _=Depends(verify_key)):
         result = E.executive_report(req.target, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/tools/encode-payload")
@@ -719,7 +776,8 @@ def tools_whois(req: WhoisRequest, _=Depends(verify_key)):
         result = E.whois_lookup(req.domain, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 @app.post("/tools/email-check")
@@ -729,7 +787,8 @@ def tools_email_check(req: EmailCheckRequest, _=Depends(verify_key)):
         result = E.email_security_check(req.domain, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 # ---------------------------------------------------------------------------
@@ -748,7 +807,8 @@ def report_sarif(req: SarifExportRequest, _=Depends(verify_key)):
         result = E.sarif_export(req.findings, safe_path, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")
 
 
 # ---------------------------------------------------------------------------
@@ -761,4 +821,5 @@ def profile_run(req: ProfileRunRequest, _=Depends(verify_key)):
         result = E.run_profile(req.name, req.target, log=log)
         return {"result": result, "log": log.entries}
     except Exception as exc:
-        raise HTTPException(500, str(exc))
+        _logger.exception("Endpoint error")
+        raise HTTPException(500, "Scan failed")

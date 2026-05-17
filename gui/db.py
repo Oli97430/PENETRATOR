@@ -253,7 +253,9 @@ def check_scope(target: str) -> bool | None:
     for rule in scope:
         if fnmatch.fnmatch(target, rule["pattern"]) or target == rule["pattern"]:
             return rule["in_scope"]
-        # Also check if the pattern is a substring
-        if rule["pattern"] in target:
+        # Domain suffix matching: *.example.com matches sub.example.com
+        # but NOT notexample.com (requires dot or exact boundary)
+        pat = rule["pattern"].lstrip("*.")
+        if target == pat or target.endswith("." + pat):
             return rule["in_scope"]
     return False  # No matching rule → out of scope

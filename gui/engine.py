@@ -25,6 +25,8 @@ Logger = Callable[..., None]  # log(msg, tag=...)
 
 # Module-level cancellation hook (set by TaskRunner before each run).
 # Engine functions can call _should_stop() inside long loops.
+import threading as _threading
+
 _stop_check: Callable[[], bool] | None = None
 
 
@@ -40,6 +42,8 @@ def _should_stop() -> bool:
 
 
 # Cross-tool memory: last scan / discovery results, accessible to "chain" tools.
+# Protected by a lock for thread-safe access across concurrent API requests.
+_session_lock = _threading.Lock()
 _session: dict[str, object] = {
     "last_target": None,
     "last_open_ports": [],
@@ -49,25 +53,29 @@ _session: dict[str, object] = {
 
 
 def session_get(key: str, default=None):
-    """Retrieve a value from the cross-tool session memory."""
-    return _session.get(key, default)
+    """Retrieve a value from the cross-tool session memory (thread-safe)."""
+    with _session_lock:
+        return _session.get(key, default)
 
 
 def session_set(key: str, value) -> None:
-    """Store a value in the cross-tool session memory."""
-    _session[key] = value
+    """Store a value in the cross-tool session memory (thread-safe)."""
+    with _session_lock:
+        _session[key] = value
 
 
 def session_dump() -> dict:
     """Snapshot the cross-tool memory (used by the workspace save feature)."""
     import copy
-    return copy.deepcopy(_session)
+    with _session_lock:
+        return copy.deepcopy(_session)
 
 
 def session_restore(snapshot: dict) -> None:
     """Restore session memory from a previously saved snapshot."""
     if isinstance(snapshot, dict):
-        _session.update(snapshot)
+        with _session_lock:
+            _session.update(snapshot)
 
 # ---------------------------------------------------------------------------
 # Constants (shared with CLI modules)
@@ -1550,6 +1558,28 @@ def check_subdomain_takeover(host: str, log: Logger) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Async helper — safe coroutine execution (handles nested event loops)
+# ---------------------------------------------------------------------------
+def _run_async(coro_fn):
+    """Run an async coroutine safely, even if called from inside an event loop.
+
+    Prefers asyncio.run(); falls back to a new event loop only when the specific
+    'cannot be called from a running event loop' error is detected.
+    """
+    import asyncio
+    try:
+        asyncio.run(coro_fn())
+    except RuntimeError as exc:
+        if "running event loop" not in str(exc) and "cannot" not in str(exc):
+            raise  # Re-raise unrelated RuntimeErrors
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro_fn())
+        finally:
+            loop.close()
+
+
+# ---------------------------------------------------------------------------
 # Async port scanner — asyncio replaces the thread pool for ~5x speed
 # ---------------------------------------------------------------------------
 def scan_ports_async(target: str, start: int, end: int, concurrency: int,
@@ -1598,15 +1628,7 @@ def scan_ports_async(target: str, start: int, end: int, concurrency: int,
                              return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        # Already inside an event loop (rare in our threaded use)
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(runner())
-        finally:
-            loop.close()
+    _run_async(runner)
     log(f"[*] Found {len(open_ports)} open port(s) in {time.time() - t0:.2f}s "
         "(async)", "cyan")
     sorted_ports = sorted(open_ports)
@@ -1669,12 +1691,7 @@ def buster_async(url: str, paths: list[str], concurrency: int,
                                  return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try: loop.run_until_complete(runner())
-        finally: loop.close()
+    _run_async(runner)
     log(f"[*] Discovered {len(found)} endpoint(s) in {time.time()-t0:.2f}s "
         "(async)", "cyan")
     return sorted(found)
@@ -1725,12 +1742,7 @@ def find_subdomains_async(domain: str, concurrency: int,
                              return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        l = asyncio.new_event_loop()
-        try: l.run_until_complete(runner())
-        finally: l.close()
+    _run_async(runner)
     log(f"[*] {len(found)} subdomain(s) in {time.time()-t0:.2f}s (async)",
         "cyan")
     return sorted(found)
@@ -1795,14 +1807,7 @@ def sqli_detect_async(url: str, concurrency: int,
             await asyncio.gather(*tasks, return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(runner())
-        finally:
-            loop.close()
+    _run_async(runner)
     log(f"[*] SQLi scan done in {time.time() - t0:.2f}s (async)", "cyan")
     if not findings:
         log("[!] No obvious SQL injection indicator found", "warn")
@@ -1869,14 +1874,7 @@ def xss_reflected_async(url: str, concurrency: int,
             await asyncio.gather(*tasks, return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(runner())
-        finally:
-            loop.close()
+    _run_async(runner)
     log(f"[*] XSS scan done in {time.time() - t0:.2f}s (async)", "cyan")
     if not findings:
         log("[!] No reflected payloads detected", "warn")
@@ -1956,14 +1954,7 @@ def cors_test_async(url: str, concurrency: int,
                                  return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(runner())
-        finally:
-            loop.close()
+    _run_async(runner)
     risky_n = sum(1 for f in findings if f.get("risky"))
     log(f"[*] {risky_n} risky CORS config(s) in {time.time() - t0:.2f}s (async)",
         "warn" if risky_n else "ok")
@@ -2039,14 +2030,7 @@ def open_redirect_test_async(url: str, concurrency: int,
             await asyncio.gather(*tasks, return_exceptions=True)
 
     t0 = time.time()
-    try:
-        asyncio.run(runner())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(runner())
-        finally:
-            loop.close()
+    _run_async(runner)
     log(f"[*] Redirect test done in {time.time() - t0:.2f}s (async)", "cyan")
     if not findings:
         log("[+] No open-redirect indicator found", "ok")
@@ -4385,6 +4369,7 @@ PRIVESC_CHECKS_WINDOWS = [
 
 def privesc_checklist(platform: str, log: Logger) -> dict:
     """Run privilege escalation enumeration commands."""
+    import shlex
     import subprocess
 
     is_windows = platform.lower().startswith("win")
@@ -4397,11 +4382,12 @@ def privesc_checklist(platform: str, log: Logger) -> dict:
             break
         log(f"\n  ─── {name} ───", "cyan")
         try:
+            # Use shell=True on Windows (cmd built-ins need it), shlex.split on Linux
             if is_windows:
                 proc = subprocess.run(cmd, shell=True, capture_output=True,
                                       text=True, timeout=15)
             else:
-                proc = subprocess.run(cmd, shell=True, capture_output=True,
+                proc = subprocess.run(shlex.split(cmd), capture_output=True,
                                       text=True, timeout=15)
             output = proc.stdout.strip()
             if output:
@@ -5022,11 +5008,24 @@ def waf_bypass_test(url: str, payload: str, waf_type: str, log: Logger) -> list[
 # ---------------------------------------------------------------------------
 def nmap_import(xml_path: str, log: Logger) -> dict:
     """Parse an Nmap XML output file and load results into session."""
-    import xml.etree.ElementTree as ET
+    from xml.etree.ElementTree import iterparse
     log(f"[*] Importing Nmap XML: {xml_path}", "cyan")
     results: dict = {"hosts": [], "total_ports": 0}
 
+    # Use defusedxml if available; otherwise use iterparse with entity guard
     try:
+        import defusedxml.ElementTree as _safe_ET
+        tree = _safe_ET.parse(xml_path)
+        root = tree.getroot()
+    except ImportError:
+        # Fallback: reject files with entity declarations (billion laughs defense)
+        with open(xml_path, "r", encoding="utf-8", errors="ignore") as _f:
+            head = _f.read(4096)
+        if "<!ENTITY" in head.upper():
+            log("[-] XML entity declarations detected — refusing to parse "
+                "(install defusedxml for safe parsing)", "err")
+            return results
+        import xml.etree.ElementTree as ET
         tree = ET.parse(xml_path)
         root = tree.getroot()
     except Exception as exc:
@@ -5074,6 +5073,14 @@ def nuclei_run(target: str, templates: str, log: Logger) -> list[dict]:
     if not shutil.which("nuclei"):
         log("[-] nuclei not installed. Download from https://github.com/projectdiscovery/nuclei", "err")
         return []
+
+    # Validate template path to prevent arbitrary file loading
+    if templates:
+        tpath = Path(templates).resolve()
+        # Reject paths with traversal or absolute paths outside cwd
+        if ".." in templates or (tpath.is_absolute() and not str(tpath).startswith(str(Path.cwd()))):
+            log("[-] Template path rejected (path traversal detected)", "err")
+            return []
 
     cmd = ["nuclei", "-u", target, "-silent", "-jsonl"]
     if templates:
@@ -6213,7 +6220,9 @@ def cis_benchmark(platform: str, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            proc = subprocess.run(cmd, shell=True, capture_output=True,
+            # cis_benchmark commands use shell pipes/redirections — shell=True needed
+            # Commands are all constants (not user-supplied), so injection is not a risk
+            proc = subprocess.run(cmd, shell=True, capture_output=True,  # noqa: S602
                                   text=True, timeout=15)
             output = proc.stdout.strip()
             passed = validator(output) if output else False
