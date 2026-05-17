@@ -47,7 +47,8 @@ Built with modern, high-performance Python libraries:
 *   **CLI:** `Rich` (Beautifully formatted tables, progress bars, and logs)
 *   **API:** `FastAPI` + `Uvicorn` (async REST API with OpenAPI docs)
 *   **Database:** SQLite (WAL mode, parameterized queries)
-*   **Engine:** 125+ modular pure-Python security functions
+*   **Engine:** 130+ pure-Python security functions (7 async variants)
+*   **Security:** Thread-safe session, rate-limited API, timing-safe auth, XML bomb defense
 *   **Packaging:** `PyInstaller` for standalone Windows execution
 
 ---

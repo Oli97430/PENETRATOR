@@ -7,6 +7,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-05-17
+
+### Security — Full code review hardening (11 fixes)
+- **API info leak plugged** — all 38 endpoints no longer expose `str(exc)` to clients;
+  internal errors logged server-side, generic "Scan failed" returned
+- **Default API key refusal** — startup now raises `RuntimeError` if key is `changeme`
+  (was: warning only)
+- **Rate limiter hardened** — stale IPs evicted, hard cap at 10K tracked IPs, rejects
+  requests with unknown client
+- **Session thread safety** — `_session` dict protected by `threading.Lock`
+- **asyncio.run() fallback** — replaced broad `except RuntimeError` with precise
+  `_run_async()` helper across 7 async functions
+- **nuclei_run** — template path validated (rejects `..` and absolute paths outside cwd)
+- **nmap_import** — XML entity expansion (billion-laughs) defense added
+- **privesc_checklist** — Linux branch uses `shlex.split()` instead of `shell=True`
+- **Scope check** — substring match replaced with proper domain-suffix matching
+- **JWT brute temp file** — `finally: os.unlink()` prevents disk leak
+- **Port scan efficiency** — comma-separated list now scans only specified ports
+
 ## [1.8.0] — 2026-05-12
 
 ### Added — 17-point improvement roadmap (all items implemented)
