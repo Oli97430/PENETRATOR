@@ -89,21 +89,22 @@ async def _rate_limit_middleware(request: Request, call_next):
         return JSONResponse(status_code=400, content={"detail": "Unknown client"})
     client_ip = request.client.host
     now = _time.time()
-    # Prune old entries for this IP
-    _rate_store[client_ip] = [
-        t for t in _rate_store[client_ip] if now - t < _RATE_WINDOW
-    ]
-    # Evict key entirely if no recent requests (prevents unbounded growth)
-    if not _rate_store[client_ip]:
-        del _rate_store[client_ip]
+    # Prune old entries for this IP (only if it exists)
+    if client_ip in _rate_store:
+        recent = [t for t in _rate_store[client_ip] if now - t < _RATE_WINDOW]
+        if recent:
+            _rate_store[client_ip] = recent
+        else:
+            del _rate_store[client_ip]
     # Hard cap on tracked IPs to prevent memory exhaustion via IP cycling
+    # Only reject truly NEW IPs — returning IPs were either kept or just pruned above
     if client_ip not in _rate_store and len(_rate_store) >= _RATE_MAX_IPS:
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Try again later."},
             headers={"Retry-After": str(int(_RATE_WINDOW))},
         )
-    if len(_rate_store[client_ip]) >= _RATE_LIMIT:
+    if len(_rate_store.get(client_ip, [])) >= _RATE_LIMIT:
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Try again later."},
