@@ -18,7 +18,7 @@ python-whois>=0.9.0
 Pillow>=11.3.0
 
 # --- OSINT ---
-phonenumbers>=9.0.29
+phonenumbers>=9.0.30
 
 # --- IoT / MQTT ---
 paho-mqtt>=2.0.0
