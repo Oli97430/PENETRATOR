@@ -7,6 +7,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-05-24
+
+### Added — 22-point quality & security roadmap (major items)
+- **500 tests** (up from 200) — test_engine_coverage.py (144 tests), test_api.py (129 tests),
+  test_db.py (20 tests), test_plugins.py (7 tests)
+- **SSRF protection** — all API scan endpoints block internal/private IPs (127.x, 10.x,
+  172.16.x, 192.168.x, 169.254.x, ::1, fc00::/7). Configurable via `PENETRATOR_SSRF_PROTECTION`
+- **Input validation** — all URL/domain/port fields validated with Pydantic `field_validator`
+  (scheme enforcement, FQDN check, port 1-65535 range)
+- **Request-ID middleware** — `X-Request-Id` header on every response for tracing
+- **CORS support** — configurable origins via `PENETRATOR_CORS_ORIGINS`
+- **Structured JSON logging** — API logs emit `{"ts", "level", "logger", "msg"}` format
+- **Retry helper** — `_retry()` with exponential backoff for transient HTTP errors
+- **`py.typed` marker** — PEP 561 compliance for type checkers
+- **mypy config** in pyproject.toml
+
+### Changed
+- **User-Agent stealth** — all 42 hardcoded `"PENETRATOR/1.0"` strings replaced with
+  `random_ua()` (rotates 15 realistic UAs); `UA_POOL` moved to module top for early access
+- **TLS verification configurable** — 20 `verify=False` → `verify=TLS_VERIFY` (env: `PENETRATOR_TLS_VERIFY`)
+- **Timeouts configurable** — ~80 hardcoded `timeout=8/10` → `timeout=REQUEST_TIMEOUT`
+  (env: `PENETRATOR_TIMEOUT`, default 10s)
+- **Rate limiter async-safe** — wrapped with `asyncio.Lock` for correct concurrent access
+- **Version bump** to 1.9.0 across banner, API, pyproject.toml, executive reports
+- **`.env.example`** expanded with all new environment variables
+
+### Security
+- SSRF protection blocks scanning internal networks via the API
+- Input validation prevents malformed URLs/domains reaching engine functions
+- Rate limiter now uses `asyncio.Lock` preventing race conditions under concurrent load
+
 ## [1.8.1] — 2026-05-17
 
 ### Security — Full code review hardening (11 fixes)

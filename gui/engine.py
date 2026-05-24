@@ -52,7 +52,7 @@ _session: dict[str, object] = {
 }
 
 
-def session_get(key: str, default=None):
+def session_get(key: str, default=None) -> object:
     """Retrieve a value from the cross-tool session memory (thread-safe)."""
     with _session_lock:
         return _session.get(key, default)
@@ -76,6 +76,68 @@ def session_restore(snapshot: dict) -> None:
     if isinstance(snapshot, dict):
         with _session_lock:
             _session.update(snapshot)
+
+# ---------------------------------------------------------------------------
+# Global configuration (overridable via environment or programmatically)
+# ---------------------------------------------------------------------------
+import os as _os
+
+# Default request timeout for HTTP calls (seconds)
+REQUEST_TIMEOUT: float = float(_os.environ.get("PENETRATOR_TIMEOUT", "10"))
+
+# TLS certificate verification: True = verify (safe), False = skip (for self-signed targets)
+TLS_VERIFY: bool = _os.environ.get("PENETRATOR_TLS_VERIFY", "1") not in ("0", "false", "no")
+
+# Maximum HTTP retry attempts for transient failures
+MAX_RETRIES: int = int(_os.environ.get("PENETRATOR_MAX_RETRIES", "2"))
+
+
+# ---------------------------------------------------------------------------
+# Retry helper — exponential backoff for transient HTTP errors
+# ---------------------------------------------------------------------------
+def _retry(fn, *args, retries: int | None = None, **kwargs):
+    """Call *fn* with retry on ConnectionError / Timeout.
+
+    Uses exponential backoff (0.5s, 1s, 2s…).  Returns the first
+    successful result or re-raises the last exception.
+    """
+    max_tries = (retries if retries is not None else MAX_RETRIES) + 1
+    import requests as _req
+    for attempt in range(max_tries):
+        try:
+            return fn(*args, **kwargs)
+        except (_req.ConnectionError, _req.Timeout):
+            if attempt == max_tries - 1:
+                raise
+            time.sleep(0.5 * (2 ** attempt))
+
+
+# ---------------------------------------------------------------------------
+# User-Agent Rotation (early definition so all functions can use random_ua())
+# ---------------------------------------------------------------------------
+UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/125.0.0.0",
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+    "curl/8.7.1",
+    "python-requests/2.32.0",
+    "Wget/1.21.4",
+    "PostmanRuntime/7.38.0",
+    "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+    "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15",
+]
+
+
+def random_ua() -> str:
+    """Return a random User-Agent from the pool."""
+    return secrets.choice(UA_POOL)
+
 
 # ---------------------------------------------------------------------------
 # Constants (shared with CLI modules)
@@ -404,8 +466,8 @@ def fetch_headers(url: str, log: Logger) -> dict:
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
     try:
-        resp = requests.get(url, timeout=10, allow_redirects=True,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True,
+                            headers={"User-Agent": random_ua()})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err")
         return {}
@@ -534,8 +596,8 @@ def check_security_headers(url: str, log: Logger) -> dict:
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
     try:
-        resp = requests.get(url, timeout=10, allow_redirects=True,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+        resp = _retry(requests.get, url, timeout=REQUEST_TIMEOUT,
+                      allow_redirects=True, headers={"User-Agent": random_ua()})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err")
         return {}
@@ -561,8 +623,8 @@ def fetch_discovery_files(url: str, log: Logger) -> dict:
     for path in ("robots.txt", "sitemap.xml", "security.txt", ".well-known/security.txt"):
         target = f"{url}/{path}"
         try:
-            resp = requests.get(target, timeout=8,
-                                headers={"User-Agent": "PENETRATOR/1.0"})
+            resp = requests.get(target, timeout=REQUEST_TIMEOUT,
+                                headers={"User-Agent": random_ua()})
         except requests.RequestException:
             continue
         out[path] = (resp.status_code, resp.text)
@@ -580,8 +642,8 @@ def detect_tech(url: str, log: Logger) -> dict:
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
     try:
-        resp = requests.get(url, timeout=10, allow_redirects=True,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True,
+                            headers={"User-Agent": random_ua()})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err")
         return {}
@@ -631,7 +693,7 @@ def sqli_detect(url: str, log: Logger) -> list[tuple[str, str, str]]:
         log("[-] URL has no query parameters to test.", "err")
         return []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
     findings: list[tuple[str, str, str]] = []
     for param in params:
         if _should_stop():
@@ -641,7 +703,7 @@ def sqli_detect(url: str, log: Logger) -> list[tuple[str, str, str]]:
             mutated = dict(params); mutated[param] = params[param] + payload
             test_url = urlunparse(parsed._replace(query=urlencode(mutated)))
             try:
-                resp = sess.get(test_url, timeout=10, allow_redirects=False)
+                resp = sess.get(test_url, timeout=REQUEST_TIMEOUT, allow_redirects=False)
             except requests.RequestException:
                 continue
             body = resp.text.lower()
@@ -684,7 +746,7 @@ def xss_reflected(url: str, log: Logger) -> list[tuple[str, str]]:
         log("[-] URL has no query parameters to test.", "err")
         return []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
     findings: list[tuple[str, str]] = []
     marker = "penetx1337"
     for param in params:
@@ -696,7 +758,7 @@ def xss_reflected(url: str, log: Logger) -> list[tuple[str, str]]:
             mutated = dict(params); mutated[param] = marked
             test_url = urlunparse(parsed._replace(query=urlencode(mutated, safe="<>\"'/=()")))
             try:
-                resp = sess.get(test_url, timeout=8, allow_redirects=False)
+                resp = sess.get(test_url, timeout=REQUEST_TIMEOUT, allow_redirects=False)
             except requests.RequestException:
                 continue
             if marked in resp.text:
@@ -1046,7 +1108,7 @@ def ip_geolocate(target: str, log: Logger) -> dict:
     """Look up geolocation data for an IP address or domain."""
     import requests
     try:
-        resp = requests.get(f"http://ip-api.com/json/{target}", timeout=8)
+        resp = requests.get(f"http://ip-api.com/json/{target}", timeout=REQUEST_TIMEOUT)
         data = resp.json()
     except Exception as exc:
         log(f"[-] {exc}", "err")
@@ -1066,7 +1128,7 @@ def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
     import requests
     sess = requests.Session()
     sess.headers.update({
-        "User-Agent": "Mozilla/5.0 (PENETRATOR/1.0)",
+        "User-Agent": random_ua(),
         "Accept-Language": "en-US,en;q=0.9",
     })
 
@@ -1074,7 +1136,7 @@ def username_search(username: str, log: Logger) -> list[tuple[str, str, int]]:
         """Check a single site for the username and return (site, url, status)."""
         url = tmpl.format(u=username)
         try:
-            r = sess.get(url, timeout=8, allow_redirects=True)
+            r = sess.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
             return site, url, r.status_code
         except requests.RequestException:
             return site, url, 0
@@ -1196,7 +1258,7 @@ def crtsh_subdomains(domain: str, log: Logger) -> list[str]:
     log(f"[*] Querying crt.sh for *.{domain}", "cyan")
     try:
         resp = requests.get(url, timeout=30,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+                            headers={"User-Agent": random_ua()})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err")
         return []
@@ -1310,7 +1372,7 @@ def tls_scan(host: str, port: int, log: Logger) -> dict:
     # 1. Cert info via default context
     try:
         ctx = ssl.create_default_context()
-        with _s.create_connection((host, port), timeout=8) as sock:
+        with _s.create_connection((host, port), timeout=REQUEST_TIMEOUT) as sock:
             with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
                 cipher = ssock.cipher()
@@ -1475,9 +1537,9 @@ def hibp_password_check(password: str, log: Logger) -> int:
     try:
         resp = requests.get(
             f"https://api.pwnedpasswords.com/range/{prefix}",
-            headers={"User-Agent": "PENETRATOR/1.0",
+            headers={"User-Agent": random_ua(),
                      "Add-Padding": "true"},
-            timeout=10,
+            timeout=REQUEST_TIMEOUT,
         )
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err"); return -1
@@ -1538,8 +1600,8 @@ def check_subdomain_takeover(host: str, log: Logger) -> dict:
         log("[-] dnspython not installed", "err"); return out
 
     try:
-        resp = requests.get(f"http://{host}", timeout=8, allow_redirects=True,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+        resp = requests.get(f"http://{host}", timeout=REQUEST_TIMEOUT, allow_redirects=True,
+                            headers={"User-Agent": random_ua()})
         body = resp.text
     except requests.RequestException as exc:
         log(f"  HTTP error: {exc}", "muted")
@@ -1664,7 +1726,7 @@ def buster_async(url: str, paths: list[str], concurrency: int,
         timeout = aiohttp.ClientTimeout(total=8)
         async with aiohttp.ClientSession(
             timeout=timeout,
-            headers={"User-Agent": "PENETRATOR/1.0"},
+            headers={"User-Agent": random_ua()},
         ) as session:
             async def probe(path: str) -> None:
                 """Probe a single path via HEAD/GET."""
@@ -2049,7 +2111,7 @@ def wayback_urls(domain: str, limit: int, log: Logger) -> list[str]:
            f"&output=json&fl=original&collapse=urlkey&limit={limit}")
     try:
         resp = requests.get(api, timeout=30,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+                            headers={"User-Agent": random_ua()})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err"); return []
     if resp.status_code != 200:
@@ -2104,7 +2166,7 @@ def graphql_field_enum(url: str, log: Logger) -> dict:
     found: list[str] = []
     sess = requests.Session()
     sess.headers.update({"Content-Type": "application/json",
-                         "User-Agent": "PENETRATOR/1.0"})
+                         "User-Agent": random_ua()})
 
     for field in GRAPHQL_FIELD_GUESSES:
         if _should_stop():
@@ -2114,7 +2176,7 @@ def graphql_field_enum(url: str, log: Logger) -> dict:
         # missing subselection if it *does* exist on a non-leaf type.
         query = {"query": "{ " + field + " }"}
         try:
-            resp = sess.post(url, json=query, timeout=8)
+            resp = sess.post(url, json=query, timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
             continue
         try:
@@ -2206,7 +2268,7 @@ def http_smuggling_detect(url: str, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            raw_sock = _socket.create_connection((host, port), timeout=10)
+            raw_sock = _socket.create_connection((host, port), timeout=REQUEST_TIMEOUT)
             sock = raw_sock
             try:
                 if parsed.scheme == "https":
@@ -2286,9 +2348,9 @@ def cors_test(url: str, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            resp = requests.get(url, timeout=8,
-                                headers={"Origin": origin,
-                                         "User-Agent": "PENETRATOR/1.0"})
+            resp = _retry(requests.get, url, timeout=REQUEST_TIMEOUT,
+                          headers={"Origin": origin,
+                                   "User-Agent": random_ua()})
         except requests.RequestException as exc:
             log(f"  [-] {origin}: {exc}", "muted")
             continue
@@ -2337,7 +2399,7 @@ def open_redirect_test(url: str, log: Logger) -> list[tuple[str, str]]:
     ]
     findings: list[tuple[str, str]] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
     for param in params:
         if _should_stop():
             break
@@ -2346,7 +2408,7 @@ def open_redirect_test(url: str, log: Logger) -> list[tuple[str, str]]:
             mut = dict(params); mut[param] = p
             test_url = urlunparse(parsed._replace(query=urlencode(mut)))
             try:
-                resp = sess.get(test_url, timeout=8, allow_redirects=False)
+                resp = sess.get(test_url, timeout=REQUEST_TIMEOUT, allow_redirects=False)
             except requests.RequestException:
                 continue
             loc = resp.headers.get("Location", "")
@@ -2388,13 +2450,13 @@ def waf_detect(url: str, log: Logger) -> list[str]:
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
     try:
-        baseline = requests.get(url, timeout=10,
-                                headers={"User-Agent": "PENETRATOR/1.0"},
+        baseline = requests.get(url, timeout=REQUEST_TIMEOUT,
+                                headers={"User-Agent": random_ua()},
                                 allow_redirects=True)
         noisy = requests.get(
             url + "?id=1' OR 1=1--&xss=<script>alert(1)</script>",
-            timeout=10,
-            headers={"User-Agent": "PENETRATOR/1.0"},
+            timeout=REQUEST_TIMEOUT,
+            headers={"User-Agent": random_ua()},
             allow_redirects=True,
         )
     except requests.RequestException as exc:
@@ -2443,8 +2505,8 @@ def graphql_introspect(url: str, log: Logger) -> dict:
     }
     log(f"[*] GraphQL introspection POST {url}", "cyan")
     try:
-        resp = requests.post(url, json=query, timeout=10,
-                             headers={"User-Agent": "PENETRATOR/1.0",
+        resp = requests.post(url, json=query, timeout=REQUEST_TIMEOUT,
+                             headers={"User-Agent": random_ua(),
                                       "Content-Type": "application/json"})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err"); return {}
@@ -2509,18 +2571,18 @@ def imds_check(via_url: str, log: Logger) -> list[dict]:
             if "GCP" in name or "Hetzner" in name:
                 resp = requests.get(url, timeout=5,
                                     headers={"Metadata-Flavor": "Google",
-                                             "User-Agent": "PENETRATOR/1.0"})
+                                             "User-Agent": random_ua()})
             elif "Azure" in name:
                 resp = requests.get(url, timeout=5,
                                     headers={"Metadata": "true",
-                                             "User-Agent": "PENETRATOR/1.0"})
+                                             "User-Agent": random_ua()})
             elif "IMDSv2" in name:
                 resp = requests.put(url, timeout=5,
                                     headers={"X-aws-ec2-metadata-token-ttl-seconds": "60",
-                                             "User-Agent": "PENETRATOR/1.0"})
+                                             "User-Agent": random_ua()})
             else:
                 resp = requests.get(url, timeout=5,
-                                    headers={"User-Agent": "PENETRATOR/1.0"})
+                                    headers={"User-Agent": random_ua()})
         except requests.RequestException as exc:
             log(f"  [-] {name}: {exc}", "muted"); continue
         ok = (resp.status_code == 200
@@ -2542,7 +2604,7 @@ def http_repeat(method: str, url: str, headers_text: str, body: str,
     import requests
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
-    headers: dict[str, str] = {"User-Agent": "PENETRATOR/1.0"}
+    headers: dict[str, str] = {"User-Agent": random_ua()}
     for line in (headers_text or "").splitlines():
         line = line.strip()
         if not line or ":" not in line:
@@ -2625,11 +2687,11 @@ def ssrf_scan(url: str, param: str, log: Logger) -> list[dict]:
     log(f"[*] SSRF scan on {url} — parameter: {target_param}", "cyan")
     findings: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     # Get baseline
     try:
-        baseline = sess.get(url, timeout=10)
+        baseline = sess.get(url, timeout=REQUEST_TIMEOUT)
         baseline_len = len(baseline.content)
         baseline_time = baseline.elapsed.total_seconds()
     except requests.RequestException as exc:
@@ -2644,7 +2706,7 @@ def ssrf_scan(url: str, param: str, log: Logger) -> list[dict]:
         test_url = urlunparse(parsed._replace(query=urlencode(mut)))
         try:
             start = time.time()
-            resp = sess.get(test_url, timeout=10, allow_redirects=False)
+            resp = sess.get(test_url, timeout=REQUEST_TIMEOUT, allow_redirects=False)
             elapsed = time.time() - start
         except requests.RequestException:
             continue
@@ -2706,9 +2768,9 @@ def xxe_test(url: str, log: Logger) -> list[dict]:
         if _should_stop():
             break
         try:
-            resp = requests.post(url, data=payload, timeout=10,
+            resp = requests.post(url, data=payload, timeout=REQUEST_TIMEOUT,
                                  headers={"Content-Type": "application/xml",
-                                           "User-Agent": "PENETRATOR/1.0"})
+                                           "User-Agent": random_ua()})
         except requests.RequestException as exc:
             log(f"  Payload {i}: connection error — {exc}", "muted")
             continue
@@ -2758,7 +2820,7 @@ def crlf_test(url: str, log: Logger) -> list[dict]:
     log(f"[*] CRLF injection test on {url}", "cyan")
     findings: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     for param_name in params:
         if _should_stop():
@@ -2770,7 +2832,7 @@ def crlf_test(url: str, log: Logger) -> list[dict]:
             mut[param_name] = params[param_name] + payload
             test_url = urlunparse(parsed._replace(query=urlencode(mut, safe="")))
             try:
-                resp = sess.get(test_url, timeout=8, allow_redirects=False)
+                resp = sess.get(test_url, timeout=REQUEST_TIMEOUT, allow_redirects=False)
             except requests.RequestException:
                 continue
             # Check if our injected header appeared
@@ -2807,7 +2869,7 @@ def race_condition_test(url: str, method: str, body: str, count: int,
     log(f"[*] Race condition test: {count}× {method} {url}", "cyan")
 
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0",
+    sess.headers.update({"User-Agent": random_ua(),
                          "Content-Type": "application/x-www-form-urlencoded"})
 
     results: list[dict] = []
@@ -2890,7 +2952,7 @@ def websocket_fuzz(url: str, log: Logger) -> list[dict]:
     findings: list[dict] = []
 
     try:
-        ws = websocket.create_connection(url, timeout=10)
+        ws = websocket.create_connection(url, timeout=REQUEST_TIMEOUT)
     except Exception as exc:
         log(f"[-] Connection failed: {exc}", "err")
         return []
@@ -3070,7 +3132,7 @@ def dns_axfr(domain: str, log: Logger) -> list[str]:
                 break
             log(f"  Trying AXFR on {ns}...", "info")
             try:
-                zone = dns.zone.from_xfr(dns.query.xfr(ns, domain, timeout=10))
+                zone = dns.zone.from_xfr(dns.query.xfr(ns, domain, timeout=REQUEST_TIMEOUT))
                 for name, node in zone.nodes.items():
                     record_str = f"{name}.{domain}"
                     records.append(record_str)
@@ -3209,7 +3271,7 @@ def arp_spoof_detect(interface: str, log: Logger) -> list[dict]:
     conflicts: list[dict] = []
 
     try:
-        result = subprocess.run(["arp", "-a"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["arp", "-a"], capture_output=True, text=True, timeout=REQUEST_TIMEOUT)
         lines = result.stdout.splitlines()
     except (OSError, subprocess.TimeoutExpired) as exc:
         log(f"[-] {exc}", "err")
@@ -3275,14 +3337,14 @@ def swagger_discovery(url: str, log: Logger) -> list[dict]:
     log(f"[*] Swagger/OpenAPI discovery on {url} ({len(SWAGGER_PATHS)} paths)", "cyan")
     found: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     for path in SWAGGER_PATHS:
         if _should_stop():
             break
         target = urljoin(url, path)
         try:
-            resp = sess.get(target, timeout=8, allow_redirects=True)
+            resp = sess.get(target, timeout=REQUEST_TIMEOUT, allow_redirects=True)
         except requests.RequestException:
             continue
         if resp.status_code == 200:
@@ -3318,15 +3380,15 @@ def broken_auth_test(url: str, valid_token: str, log: Logger) -> dict:
     log(f"[*] Broken auth test on {url}", "cyan")
     results: dict = {"url": url, "tests": []}
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     # Test 1: No auth
     try:
-        resp = sess.get(url, timeout=10)
+        resp = sess.get(url, timeout=REQUEST_TIMEOUT)
         no_auth = {"test": "no_token", "status": resp.status_code,
                    "length": len(resp.content)}
         if resp.status_code == 200:
-            log(f"[!] No auth → HTTP 200 (possible broken auth!)", "err")
+            log("[!] No auth → HTTP 200 (possible broken auth!)", "err")
             no_auth["vulnerable"] = True
         else:
             log(f"  No auth → HTTP {resp.status_code}", "info")
@@ -3340,7 +3402,7 @@ def broken_auth_test(url: str, valid_token: str, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            resp = sess.get(url, timeout=10,
+            resp = sess.get(url, timeout=REQUEST_TIMEOUT,
                             headers={header_name: "invalid_token_12345"})
             test = {"test": f"invalid_{header_name}", "status": resp.status_code,
                     "length": len(resp.content)}
@@ -3357,7 +3419,7 @@ def broken_auth_test(url: str, valid_token: str, log: Logger) -> dict:
     # Test 3: With valid token (baseline)
     if valid_token:
         try:
-            resp = sess.get(url, timeout=10,
+            resp = sess.get(url, timeout=REQUEST_TIMEOUT,
                             headers={"Authorization": f"Bearer {valid_token}"})
             log(f"  Valid token → HTTP {resp.status_code} ({len(resp.content)} bytes)", "info")
             results["baseline"] = {"status": resp.status_code,
@@ -3404,15 +3466,15 @@ def mass_assignment_test(url: str, method: str, base_body: str,
         is_json = False
 
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     # Baseline request
     try:
         if is_json:
             sess.headers["Content-Type"] = "application/json"
-            baseline = sess.request(method, url, json=body_dict, timeout=10)
+            baseline = sess.request(method, url, json=body_dict, timeout=REQUEST_TIMEOUT)
         else:
-            baseline = sess.request(method, url, data=base_body or "", timeout=10)
+            baseline = sess.request(method, url, data=base_body or "", timeout=REQUEST_TIMEOUT)
         baseline_status = baseline.status_code
         baseline_len = len(baseline.content)
     except requests.RequestException as exc:
@@ -3429,9 +3491,9 @@ def mass_assignment_test(url: str, method: str, base_body: str,
 
         try:
             if is_json:
-                resp = sess.request(method, url, json=test_body, timeout=10)
+                resp = sess.request(method, url, json=test_body, timeout=REQUEST_TIMEOUT)
             else:
-                resp = sess.request(method, url, data=test_body, timeout=10)
+                resp = sess.request(method, url, data=test_body, timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
             continue
 
@@ -3466,7 +3528,7 @@ def rate_limit_test(url: str, count: int, log: Logger) -> dict:
     log(f"[*] Rate limit test: {count} requests to {url}", "cyan")
 
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     statuses: list[int] = []
     blocked_at: int | None = None
@@ -3475,7 +3537,7 @@ def rate_limit_test(url: str, count: int, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            resp = sess.get(url, timeout=10)
+            resp = sess.get(url, timeout=REQUEST_TIMEOUT)
             statuses.append(resp.status_code)
             if resp.status_code == 429:
                 if blocked_at is None:
@@ -3525,7 +3587,7 @@ def cipher_suite_grade(host: str, port: int, log: Logger) -> dict:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         ctx.set_ciphers("ALL:COMPLEMENTOFALL")
-        sock = _socket.create_connection((host, port), timeout=10)
+        sock = _socket.create_connection((host, port), timeout=REQUEST_TIMEOUT)
         ssock = ctx.wrap_socket(sock, server_hostname=host)
         negotiated = ssock.cipher()
         all_ciphers = ctx.get_ciphers()
@@ -3685,7 +3747,7 @@ def ct_monitor(domain: str, log: Logger) -> list[dict]:
     try:
         resp = requests.get(
             f"https://crt.sh/?q=%25.{domain}&output=json",
-            timeout=20, headers={"User-Agent": "PENETRATOR/1.0"})
+            timeout=20, headers={"User-Agent": random_ua()})
         if resp.status_code != 200:
             log(f"[-] crt.sh returned HTTP {resp.status_code}", "err")
             return []
@@ -3744,14 +3806,14 @@ def s3_bucket_enum(domain: str, log: Logger) -> list[dict]:
     log(f"[*] S3 bucket enumeration ({len(bucket_names)} variations)", "cyan")
     found: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     for name in bucket_names:
         if _should_stop():
             break
         url = f"https://{name}.s3.amazonaws.com"
         try:
-            resp = sess.get(url, timeout=8)
+            resp = sess.get(url, timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
             continue
 
@@ -3789,7 +3851,7 @@ def azure_blob_check(domain: str, log: Logger) -> list[dict]:
     log(f"[*] Azure Blob check ({len(account_names)}×{len(containers)} combinations)", "cyan")
     found: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     for account in account_names:
         if _should_stop():
@@ -3799,7 +3861,7 @@ def azure_blob_check(domain: str, log: Logger) -> list[dict]:
                 break
             url = f"https://{account}.blob.core.windows.net/{container}?restype=container&comp=list"
             try:
-                resp = sess.get(url, timeout=8)
+                resp = sess.get(url, timeout=REQUEST_TIMEOUT)
             except requests.RequestException:
                 continue
             if resp.status_code == 200 and "EnumerationResults" in resp.text:
@@ -3836,14 +3898,14 @@ def git_exposure_check(url: str, log: Logger) -> list[dict]:
     log(f"[*] Git exposure check on {url}", "cyan")
     found: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     for path in GIT_PATHS:
         if _should_stop():
             break
         target = url + path
         try:
-            resp = sess.get(target, timeout=8)
+            resp = sess.get(target, timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
             continue
 
@@ -3894,8 +3956,8 @@ def firebase_scan(target: str, log: Logger) -> dict:
 
     # Test read
     try:
-        resp = requests.get(f"{target}/.json", timeout=10,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+        resp = requests.get(f"{target}/.json", timeout=REQUEST_TIMEOUT,
+                            headers={"User-Agent": random_ua()})
         if resp.status_code == 200:
             data = resp.json() if resp.text.strip() else None
             if data is not None:
@@ -3917,8 +3979,8 @@ def firebase_scan(target: str, log: Logger) -> dict:
     try:
         resp = requests.put(
             f"{target}/_penetrator_test/.json",
-            json={"test": True}, timeout=10,
-            headers={"User-Agent": "PENETRATOR/1.0"})
+            json={"test": True}, timeout=REQUEST_TIMEOUT,
+            headers={"User-Agent": random_ua()})
         if resp.status_code == 200:
             log("[!] Database is WRITABLE! (critical!)", "err")
             results["writable"] = True
@@ -3983,7 +4045,7 @@ def ldap_anonymous_check(host: str, port: int, log: Logger) -> dict:
         log("[!] ldap3 not installed — basic TCP probe only", "warn")
         sock = None
         try:
-            sock = _socket.create_connection((host, port), timeout=10)
+            sock = _socket.create_connection((host, port), timeout=REQUEST_TIMEOUT)
             # Send minimal LDAP bind request (anonymous)
             bind_request = (
                 b"\x30\x0c\x02\x01\x01\x60\x07\x02\x01\x03\x04\x00\x80\x00"
@@ -4073,13 +4135,13 @@ def smb_enum(host: str, log: Logger) -> list[dict]:
         try:
             sock = _socket.create_connection((host, 445), timeout=5)
             sock.close()
-            log(f"  Port 445 open — SMB service available", "info")
+            log("  Port 445 open — SMB service available", "info")
             log("  Install 'smbclient' or 'impacket' for full enumeration", "warn")
         except OSError:
             try:
                 sock = _socket.create_connection((host, 139), timeout=5)
                 sock.close()
-                log(f"  Port 139 open — NetBIOS/SMB available", "info")
+                log("  Port 139 open — NetBIOS/SMB available", "info")
             except OSError:
                 log("[-] SMB ports (445/139) not reachable", "muted")
 
@@ -4168,7 +4230,7 @@ def github_dorking(domain: str, log: Logger) -> list[dict]:
     findings: list[dict] = []
 
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0",
+    sess.headers.update({"User-Agent": random_ua(),
                          "Accept": "application/vnd.github.v3+json"})
 
     for dork_template in GITHUB_DORKS:
@@ -4216,7 +4278,7 @@ def paste_monitor(domain: str, log: Logger) -> list[dict]:
     log(f"[*] Paste site monitoring for: {domain}", "cyan")
     findings: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     # Search via Google dorking (paste sites)
     paste_dorks = [
@@ -4267,14 +4329,14 @@ def domain_reputation(target: str, log: Logger) -> dict:
     log(f"[*] Domain/IP reputation check: {target}", "cyan")
     results: dict = {"target": target, "sources": {}}
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     # AbuseIPDB (no key = limited)
     try:
-        resp = sess.get(f"https://api.abuseipdb.com/api/v2/check",
+        resp = sess.get("https://api.abuseipdb.com/api/v2/check",
                         params={"ipAddress": target},
                         headers={"Key": "", "Accept": "application/json"},
-                        timeout=10)
+                        timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
             score = data.get("abuseConfidenceScore", 0)
@@ -4287,18 +4349,18 @@ def domain_reputation(target: str, log: Logger) -> dict:
     # VirusTotal (no key = domain info only)
     try:
         resp = sess.get(f"https://www.virustotal.com/api/v3/domains/{target}",
-                        timeout=10)
+                        timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
-            log(f"  VirusTotal: domain info available", "info")
+            log("  VirusTotal: domain info available", "info")
             results["sources"]["virustotal"] = {"available": True}
         else:
-            log(f"  VirusTotal: API key required for full results", "muted")
+            log("  VirusTotal: API key required for full results", "muted")
     except requests.RequestException:
         pass
 
     # Shodan InternetDB (free, no key)
     try:
-        resp = sess.get(f"https://internetdb.shodan.io/{target}", timeout=10)
+        resp = sess.get(f"https://internetdb.shodan.io/{target}", timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
             ports = data.get("ports", [])
@@ -4316,8 +4378,8 @@ def domain_reputation(target: str, log: Logger) -> dict:
 
     # ThreatCrowd
     try:
-        resp = sess.get(f"https://www.threatcrowd.org/searchApi/v2/domain/report/",
-                        params={"domain": target}, timeout=10)
+        resp = sess.get("https://www.threatcrowd.org/searchApi/v2/domain/report/",
+                        params={"domain": target}, timeout=REQUEST_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
             votes = data.get("votes", 0)
@@ -4402,7 +4464,7 @@ def privesc_checklist(platform: str, log: Logger) -> dict:
                 results["checks"].append({"name": name, "output": "",
                                           "status": "empty"})
         except subprocess.TimeoutExpired:
-            log(f"  (timed out)", "muted")
+            log("  (timed out)", "muted")
             results["checks"].append({"name": name, "status": "timeout"})
         except OSError as exc:
             log(f"  {exc}", "muted")
@@ -4462,7 +4524,7 @@ def lfi_scan(url: str, param: str, log: Logger) -> list[dict]:
     log(f"[*] LFI scan on {url} — parameter: {target_param}", "cyan")
     findings: list[dict] = []
     sess = requests.Session()
-    sess.headers.update({"User-Agent": "PENETRATOR/1.0"})
+    sess.headers.update({"User-Agent": random_ua()})
 
     for payload in LFI_PAYLOADS:
         if _should_stop():
@@ -4471,7 +4533,7 @@ def lfi_scan(url: str, param: str, log: Logger) -> list[dict]:
         mut[target_param] = payload
         test_url = urlunparse(parsed._replace(query=urlencode(mut, safe="")))
         try:
-            resp = sess.get(test_url, timeout=10)
+            resp = sess.get(test_url, timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
             continue
 
@@ -4779,7 +4841,7 @@ def executive_report(target: str, log: Logger) -> str:
         risk_score += 15
 
     grade = "CRITICAL" if risk_score >= 60 else "HIGH" if risk_score >= 40 else "MEDIUM" if risk_score >= 20 else "LOW"
-    lines.append(f"## Risk Assessment")
+    lines.append("## Risk Assessment")
     lines.append(f"Score: {risk_score}/100 ({grade})")
     lines.append("")
 
@@ -4810,7 +4872,7 @@ def executive_report(target: str, log: Logger) -> str:
     lines.append("- Enable security headers (HSTS, CSP, X-Frame-Options)")
     lines.append("")
     lines.append("---")
-    lines.append("Generated by PENETRATOR v1.8.1")
+    lines.append("Generated by PENETRATOR v1.9.0")
 
     report = "\n".join(lines)
     for line in lines:
@@ -4836,7 +4898,7 @@ def set_proxy(proxy_url: str, log: Logger) -> dict:
     # Test connectivity
     import requests
     try:
-        resp = requests.get("https://httpbin.org/ip", proxies=_proxy_config, timeout=10)
+        resp = requests.get("https://httpbin.org/ip", proxies=_proxy_config, timeout=REQUEST_TIMEOUT)
         data = resp.json()
         log(f"  External IP via proxy: {data.get('origin', '?')}", "info")
     except requests.RequestException as exc:
@@ -4850,30 +4912,8 @@ def get_proxy() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 7. User-Agent Rotation
+# 7. User-Agent Rotation (UA_POOL & random_ua defined at top of module)
 # ---------------------------------------------------------------------------
-UA_POOL = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15",
-    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/125.0.0.0",
-    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-    "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-    "curl/8.7.1",
-    "python-requests/2.32.0",
-    "Wget/1.21.4",
-    "PostmanRuntime/7.38.0",
-    "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-    "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15",
-]
-
-
-def random_ua() -> str:
-    """Return a random User-Agent from the pool."""
-    return secrets.choice(UA_POOL)
 
 
 def ua_rotation_demo(url: str, count: int, log: Logger) -> list[dict]:
@@ -4890,7 +4930,7 @@ def ua_rotation_demo(url: str, count: int, log: Logger) -> list[dict]:
             break
         ua = random_ua()
         try:
-            resp = requests.get(url, timeout=10, headers={"User-Agent": ua},
+            resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers={"User-Agent": ua},
                                 proxies=get_proxy())
             log(f"  [{resp.status_code}] UA: {ua[:50]}...", "info")
             results.append({"ua": ua, "status": resp.status_code})
@@ -4920,7 +4960,7 @@ def throttled_requests(url: str, count: int, min_delay: float,
             break
         ua = random_ua()
         try:
-            resp = requests.get(url, timeout=10, headers={"User-Agent": ua},
+            resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers={"User-Agent": ua},
                                 proxies=get_proxy())
             results.append({"idx": i, "status": resp.status_code, "ua": ua})
             log(f"  [{i+1}/{count}] HTTP {resp.status_code}", "info")
@@ -4987,7 +5027,7 @@ def waf_bypass_test(url: str, payload: str, waf_type: str, log: Logger) -> list[
         mut[target_param] = variant
         test_url = urlunparse(parsed._replace(query=urlencode(mut, safe="")))
         try:
-            resp = requests.get(test_url, timeout=10,
+            resp = requests.get(test_url, timeout=REQUEST_TIMEOUT,
                                 headers={"User-Agent": random_ua()},
                                 proxies=get_proxy())
             blocked = resp.status_code in (403, 406, 429, 503)
@@ -5160,7 +5200,7 @@ def msf_rpc_check(host: str, port: int, token: str, log: Logger) -> dict:
     try:
         # Auth check
         resp = requests.post(url, json={"method": "auth.token_list", "token": token},
-                             timeout=10, verify=False)
+                             timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY)
         if resp.status_code == 200:
             data = resp.json()
             if "error" not in data:
@@ -5168,7 +5208,7 @@ def msf_rpc_check(host: str, port: int, token: str, log: Logger) -> dict:
 
                 # List exploit count
                 resp2 = requests.post(url, json={"method": "module.exploits", "token": token},
-                                      timeout=10, verify=False)
+                                      timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY)
                 if resp2.status_code == 200:
                     modules = resp2.json().get("modules", [])
                     log(f"  Available exploits: {len(modules)}", "info")
@@ -5194,7 +5234,7 @@ def shodan_lookup(target: str, api_key: str, log: Logger) -> dict:
         # Fall back to free InternetDB
         log("  No API key — using free InternetDB", "info")
         try:
-            resp = requests.get(f"https://internetdb.shodan.io/{target}", timeout=10)
+            resp = requests.get(f"https://internetdb.shodan.io/{target}", timeout=REQUEST_TIMEOUT)
             if resp.status_code == 200:
                 data = resp.json()
                 ports = data.get("ports", [])
@@ -5264,7 +5304,7 @@ def email_security_check(domain: str, log: Logger) -> dict:
         else:
             import subprocess
             result = subprocess.run(["nslookup", "-type=TXT", domain],
-                                    capture_output=True, text=True, timeout=10)
+                                    capture_output=True, text=True, timeout=REQUEST_TIMEOUT)
             if "v=spf1" in result.stdout:
                 log("  SPF: found (install dnspython for details)", "ok")
                 results["spf"] = "present"
@@ -5522,7 +5562,7 @@ def apk_analyze(apk_path: str, log: Logger) -> dict:
                                          "config", "api", "key", ".db", ".sqlite")
             )]
             if interesting:
-                log(f"  Interesting files:", "warn")
+                log("  Interesting files:", "warn")
                 for f in interesting[:20]:
                     log(f"    {f}", "info")
                 results["meta"]["interesting_files"] = interesting
@@ -6099,7 +6139,7 @@ def pci_dss_check(target: str, log: Logger) -> dict:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         host = target.replace("https://", "").replace("http://", "").split("/")[0]
-        sock = _socket.create_connection((host, 443), timeout=10)
+        sock = _socket.create_connection((host, 443), timeout=REQUEST_TIMEOUT)
         ssock = ctx.wrap_socket(sock, server_hostname=host)
         version = ssock.version()
         passed = version in ("TLSv1.2", "TLSv1.3")
@@ -6118,8 +6158,8 @@ def pci_dss_check(target: str, log: Logger) -> dict:
 
     # Check 2: Security headers
     try:
-        resp = requests.get(url, timeout=10, verify=False,
-                            headers={"User-Agent": "PENETRATOR/1.0"})
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
+                            headers={"User-Agent": random_ua()})
         required_headers = ["Strict-Transport-Security", "X-Frame-Options",
                            "X-Content-Type-Options"]
         present = [h for h in required_headers if h in resp.headers]
@@ -6369,7 +6409,7 @@ def csrf_analyze(url: str, log: Logger) -> dict:
     result: dict = {"url": url, "tokens_found": [], "issues": [], "score": 100}
 
     try:
-        resp = requests.get(url, timeout=15, verify=False,
+        resp = requests.get(url, timeout=15, verify=TLS_VERIFY,
                             headers={"User-Agent": random_ua()},
                             allow_redirects=True)
     except requests.RequestException as exc:
@@ -6420,7 +6460,7 @@ def csrf_analyze(url: str, log: Logger) -> dict:
     # Check for custom headers requirement (X-Requested-With, etc.)
     # Try request without standard AJAX header
     try:
-        resp2 = requests.post(url, timeout=10, verify=False, data={},
+        resp2 = requests.post(url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY, data={},
                               headers={"User-Agent": random_ua()})
         if resp2.status_code not in (403, 401, 405):
             result["issues"].append("POST accepted without CSRF header/token")
@@ -6447,7 +6487,7 @@ def cookie_audit(url: str, log: Logger) -> dict:
     result: dict = {"url": url, "cookies": [], "issues": []}
 
     try:
-        resp = requests.get(url, timeout=15, verify=False,
+        resp = requests.get(url, timeout=15, verify=TLS_VERIFY,
                             headers={"User-Agent": random_ua()},
                             allow_redirects=True)
     except requests.RequestException as exc:
@@ -6553,7 +6593,7 @@ def oauth2_test(auth_url: str, redirect_uri: str, log: Logger) -> dict:
         sep = "&" if "?" in auth_url else "?"
         test_url += f"{sep}redirect_uri={urllib.parse.quote(variant, safe='')}"
         try:
-            resp = requests.get(test_url, timeout=10, verify=False,
+            resp = requests.get(test_url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                 allow_redirects=False,
                                 headers={"User-Agent": random_ua()})
             status = resp.status_code
@@ -6662,7 +6702,7 @@ def vhost_discover(ip: str, wordlist: list[str] | str, log: Logger) -> list[dict
     # Get baseline response (random non-existent host)
     baseline_len = 0
     try:
-        resp = requests.get(f"http://{ip}", timeout=10, verify=False,
+        resp = requests.get(f"http://{ip}", timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                             headers={"Host": "nonexistent.invalid", "User-Agent": random_ua()})
         baseline_len = len(resp.text)
     except requests.RequestException:
@@ -6674,7 +6714,7 @@ def vhost_discover(ip: str, wordlist: list[str] | str, log: Logger) -> list[dict
         if _should_stop():
             break
         try:
-            resp = requests.get(f"http://{ip}", timeout=8, verify=False,
+            resp = requests.get(f"http://{ip}", timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                 headers={"Host": hostname, "User-Agent": random_ua()})
             resp_len = len(resp.text)
             # Significant difference from baseline suggests a real vhost
@@ -6713,7 +6753,7 @@ def js_endpoint_extract(url: str, log: Logger) -> dict:
     result: dict = {"url": url, "scripts": [], "endpoints": [], "full_urls": []}
 
     try:
-        resp = requests.get(url, timeout=15, verify=False,
+        resp = requests.get(url, timeout=15, verify=TLS_VERIFY,
                             headers={"User-Agent": random_ua()})
     except requests.RequestException as exc:
         log(f"[-] {exc}", "err")
@@ -6735,7 +6775,7 @@ def js_endpoint_extract(url: str, log: Logger) -> dict:
             break
         full_url = urljoin(url, src)
         try:
-            js_resp = requests.get(full_url, timeout=10, verify=False,
+            js_resp = requests.get(full_url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                    headers={"User-Agent": random_ua()})
             all_js += "\n" + js_resp.text
         except requests.RequestException:
@@ -6798,7 +6838,7 @@ def param_discovery(url: str, wordlist: list[str] | str | None, log: Logger) -> 
 
     # Get baseline
     try:
-        baseline = requests.get(url, timeout=10, verify=False,
+        baseline = requests.get(url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                 headers={"User-Agent": random_ua()})
         baseline_size = len(baseline.text)
         baseline_status = baseline.status_code
@@ -6813,7 +6853,7 @@ def param_discovery(url: str, wordlist: list[str] | str | None, log: Logger) -> 
         sep = "&" if "?" in url else "?"
         test_url = f"{url}{sep}{param}=FUZZ_PENETRATOR"
         try:
-            resp = requests.get(test_url, timeout=8, verify=False,
+            resp = requests.get(test_url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                 headers={"User-Agent": random_ua()})
             size_diff = abs(len(resp.text) - baseline_size)
             if size_diff > 50 or resp.status_code != baseline_status:
@@ -6830,7 +6870,7 @@ def param_discovery(url: str, wordlist: list[str] | str | None, log: Logger) -> 
         if _should_stop():
             break
         try:
-            resp = requests.post(url, timeout=8, verify=False, data={param: "FUZZ"},
+            resp = requests.post(url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY, data={param: "FUZZ"},
                                  headers={"User-Agent": random_ua()})
             size_diff = abs(len(resp.text) - baseline_size)
             if size_diff > 50 or resp.status_code != baseline_status:
@@ -6908,7 +6948,7 @@ def tech_fingerprint(url: str, log: Logger) -> dict:
     result: dict = {"url": url, "technologies": [], "details": {}}
 
     try:
-        resp = requests.get(url, timeout=15, verify=False,
+        resp = requests.get(url, timeout=15, verify=TLS_VERIFY,
                             headers={"User-Agent": random_ua()},
                             allow_redirects=True)
     except requests.RequestException as exc:
@@ -7061,7 +7101,7 @@ def http2_smuggling(url: str, log: Logger) -> dict:
         if _should_stop():
             break
         try:
-            resp = requests.post(url, timeout=10, verify=False,
+            resp = requests.post(url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                  headers={**payload["headers"],
                                           "Host": host,
                                           "User-Agent": random_ua()},
@@ -7116,7 +7156,7 @@ def prototype_pollution_scan(url: str, log: Logger) -> dict:
         sep = "&" if "?" in url else "?"
         test_url = f"{url}{sep}{payload}"
         try:
-            resp = requests.get(test_url, timeout=10, verify=False,
+            resp = requests.get(test_url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                 headers={"User-Agent": random_ua()})
             reflected = "polluted" in resp.text
             test_r = {"payload": payload, "method": "GET",
@@ -7139,7 +7179,7 @@ def prototype_pollution_scan(url: str, log: Logger) -> dict:
             else:
                 json_body = {"__proto__": {"test": "polluted"}}
                 json_label = "JSON __proto__"
-            resp = requests.post(url, json=json_body, timeout=10, verify=False,
+            resp = requests.post(url, json=json_body, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                  headers={"User-Agent": random_ua()})
             reflected = "polluted" in resp.text
             test_r = {"payload": json_label, "method": "POST",
@@ -7190,7 +7230,7 @@ def ssti_scan(url: str, param: str, log: Logger) -> dict:
         sep = "&" if "?" in url else "?"
         test_url = f"{url}{sep}{param}={urllib.parse.quote(payload)}"
         try:
-            resp = requests.get(test_url, timeout=10, verify=False,
+            resp = requests.get(test_url, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                 headers={"User-Agent": random_ua()})
             if expected.lower() in resp.text.lower():
                 result["findings"].append({
@@ -7251,7 +7291,7 @@ def insecure_deser_test(url: str, log: Logger) -> dict:
             body = b'\x00' * 20
 
         try:
-            resp = requests.post(url, data=body, timeout=10, verify=False,
+            resp = requests.post(url, data=body, timeout=REQUEST_TIMEOUT, verify=TLS_VERIFY,
                                  headers={"Content-Type": content_type,
                                           "User-Agent": random_ua()})
             # Check if response reveals deserialization processing
