@@ -53,7 +53,7 @@ jobs:
           Write-Host $body
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "PENETRATOR ${{ github.ref_name }}"
           body_path: release_notes.md
