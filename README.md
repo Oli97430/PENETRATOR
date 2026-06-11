@@ -9,6 +9,7 @@
   <a href="https://github.com/Oli97430/PENETRATOR/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Oli97430/PENETRATOR?color=ff3860&logo=github"/></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-ff3860?logo=python&logoColor=white"/>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22d3ee"/>
+  <a href="https://oli97430.github.io/PENETRATOR/"><img alt="Website" src="https://img.shields.io/badge/website-live-00e5ff?logo=googlechrome&logoColor=white"/></a>
 </p>
 
 <p align="center">
@@ -152,8 +153,27 @@ curl -X POST http://localhost:8000/scan/ports \
 | POST | `/scan/open-redirect-async` | Async open-redirect test (aiohttp) |
 | POST | `/report/sarif` | SARIF v2.1.0 export |
 | POST | `/profile/run` | Run a scan profile |
+| WS | `/ws/scan` | WebSocket live scan streaming |
 
 See the full API documentation at `http://localhost:8000/docs` (Swagger UI).
+
+### WebSocket Streaming
+
+Connect to `/ws/scan` for real-time scan output:
+
+```javascript
+const ws = new WebSocket("ws://localhost:8000/ws/scan");
+ws.onopen = () => ws.send(JSON.stringify({
+  api_key: "your-secret-key",
+  scan: "headers",           // ports, cors, sqli, xss, subdomains, tech, whois, waf
+  params: { target: "example.com" }
+}));
+ws.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  if (msg.type === "log") console.log(`[${msg.tag}] ${msg.msg}`);
+  if (msg.type === "result") console.log("Done:", msg.data);
+};
+```
 
 ### Environment Variables
 

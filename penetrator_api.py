@@ -20,7 +20,7 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
@@ -1041,3 +1041,121 @@ def profile_run(req: ProfileRunRequest, _=Depends(verify_key)):
     except Exception:
         _logger.exception("Endpoint error")
         raise HTTPException(500, "Scan failed")
+
+
+# ---------------------------------------------------------------------------
+# WebSocket — live scan streaming
+# ---------------------------------------------------------------------------
+import threading as _ws_threading
+import queue as _ws_queue
+
+
+_SCAN_REGISTRY: dict[str, callable] = {
+    "ports": lambda p, log: E.scan_ports(p["target"], int(p.get("start", 1)),
+                                          int(p.get("end", 1024)),
+                                          int(p.get("threads", 50)),
+                                          float(p.get("timeout", 1)), log),
+    "headers": lambda p, log: E.check_security_headers(p["target"], log),
+    "cors": lambda p, log: E.cors_test(p["target"], log),
+    "sqli": lambda p, log: E.sqli_detect(p["target"], log),
+    "xss": lambda p, log: E.xss_reflected(p["target"], log),
+    "subdomains": lambda p, log: E.find_subdomains(p["target"],
+                                                     int(p.get("threads", 10)), log),
+    "tech": lambda p, log: E.tech_fingerprint(p["target"], log),
+    "whois": lambda p, log: E.whois_lookup(p["target"], log),
+    "waf": lambda p, log: E.waf_detect(p["target"], log),
+}
+
+
+@app.websocket("/ws/scan")
+async def ws_scan(ws: WebSocket):
+    """Stream scan results in real-time over WebSocket.
+
+    Protocol:
+      1. Client sends: {"api_key": "...", "scan": "ports", "params": {"target": "..."}}
+      2. Server streams: {"type": "log", "msg": "...", "tag": "..."} for each log line
+      3. Server sends:   {"type": "result", "data": ...} when the scan finishes
+      4. Server sends:   {"type": "error", "detail": "..."} on failure
+      5. Connection closes after the scan completes.
+    """
+    await ws.accept()
+    try:
+        payload = await ws.receive_json()
+    except Exception:
+        await ws.close(code=1008, reason="Invalid JSON")
+        return
+
+    key = payload.get("api_key", "")
+    if not hmac.compare_digest(key, API_KEY):
+        await ws.send_json({"type": "error", "detail": "Invalid API key"})
+        await ws.close(code=1008, reason="Unauthorized")
+        return
+
+    scan_name = payload.get("scan", "")
+    params = payload.get("params", {})
+
+    if scan_name not in _SCAN_REGISTRY:
+        await ws.send_json({"type": "error",
+                            "detail": f"Unknown scan '{scan_name}'. "
+                                      f"Available: {', '.join(sorted(_SCAN_REGISTRY))}"})
+        await ws.close(code=1003)
+        return
+
+    target = params.get("target", "")
+    if target and _SSRF_PROTECTION and _is_internal_target(target):
+        await ws.send_json({"type": "error", "detail": "SSRF blocked: internal target"})
+        await ws.close(code=1003)
+        return
+
+    log_q: _ws_queue.Queue = _ws_queue.Queue()
+
+    def log_callback(msg: str, tag: str = "info"):
+        log_q.put({"type": "log", "msg": msg, "tag": tag})
+
+    result_holder: list = []
+    error_holder: list = []
+
+    def run_scan():
+        try:
+            result = _SCAN_REGISTRY[scan_name](params, log_callback)
+            result_holder.append(result)
+        except Exception as exc:
+            error_holder.append(str(exc))
+        finally:
+            log_q.put(None)
+
+    thread = _ws_threading.Thread(target=run_scan, daemon=True)
+    thread.start()
+
+    try:
+        while True:
+            try:
+                item = log_q.get(timeout=0.1)
+            except _ws_queue.Empty:
+                continue
+            if item is None:
+                break
+            await ws.send_json(item)
+
+        if error_holder:
+            await ws.send_json({"type": "error", "detail": error_holder[0]})
+        else:
+            data = result_holder[0] if result_holder else None
+            await ws.send_json({"type": "result", "data": _serialize(data)})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws.close()
+
+
+def _serialize(obj):
+    """Make scan results JSON-serializable."""
+    if isinstance(obj, (list, tuple)):
+        return [_serialize(i) for i in obj]
+    if isinstance(obj, dict):
+        return {k: _serialize(v) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    return obj

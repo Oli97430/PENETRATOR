@@ -1529,3 +1529,63 @@ class TestNonexistentEndpoints:
     def test_404_on_unknown_scan(self):
         r = client.post("/scan/nonexistent", json={}, headers=HEADERS)
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# WebSocket scan streaming tests
+# ---------------------------------------------------------------------------
+class TestWebSocketScan:
+    """Test the /ws/scan WebSocket endpoint."""
+
+    def test_ws_missing_api_key(self):
+        with client.websocket_connect("/ws/scan") as ws:
+            ws.send_json({"api_key": "wrong", "scan": "headers",
+                          "params": {"target": "example.com"}})
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+            assert "Invalid API key" in resp["detail"]
+
+    def test_ws_unknown_scan(self):
+        with client.websocket_connect("/ws/scan") as ws:
+            ws.send_json({"api_key": "test-secret-key", "scan": "nonexistent",
+                          "params": {"target": "example.com"}})
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+            assert "Unknown scan" in resp["detail"]
+
+    @patch("penetrator_api.E")
+    def test_ws_headers_scan_streams_logs(self, mock_e):
+        mock_e.check_security_headers = lambda url, log: (
+            log("[*] checking...", "cyan"),
+            {"X-Frame-Options": "DENY"},
+        )[-1]
+
+        with client.websocket_connect("/ws/scan") as ws:
+            ws.send_json({"api_key": "test-secret-key", "scan": "headers",
+                          "params": {"target": "example.com"}})
+            messages = []
+            while True:
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg["type"] in ("result", "error"):
+                    break
+            log_msgs = [m for m in messages if m["type"] == "log"]
+            assert len(log_msgs) >= 1
+            result_msg = messages[-1]
+            assert result_msg["type"] == "result"
+
+    @patch("penetrator_api.E")
+    def test_ws_scan_error_handling(self, mock_e):
+        mock_e.cors_test = MagicMock(side_effect=RuntimeError("boom"))
+
+        with client.websocket_connect("/ws/scan") as ws:
+            ws.send_json({"api_key": "test-secret-key", "scan": "cors",
+                          "params": {"target": "example.com"}})
+            messages = []
+            while True:
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg["type"] in ("result", "error"):
+                    break
+            assert messages[-1]["type"] == "error"
+            assert "boom" in messages[-1]["detail"]

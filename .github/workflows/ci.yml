@@ -44,6 +44,11 @@ jobs:
           Write-Output $output
           exit 0
 
+      - name: Type check (mypy, advisory)
+        run: |
+          pip install mypy types-requests
+          mypy gui/engine.py penetrator_api.py --ignore-missing-imports --no-error-summary || true
+
       - name: Engine functional tests + coverage
         run: |
           python -m pytest tests/ -v --cov --cov-report=xml --cov-report=term

@@ -1,11 +1,24 @@
+# ── Stage 1: Install dependencies ──
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ── Stage 2: Runtime ──
 FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=builder /install /usr/local
 
-COPY . .
+COPY gui/ gui/
+COPY core/ core/
+COPY modules/ modules/
+COPY penetrator_api.py .
+COPY penetrator.py .
+COPY penetrator_cli.py .
+COPY .env.example .
 
 RUN useradd --create-home appuser \
     && mkdir -p data/reports \
